@@ -149,7 +149,13 @@ $log = Run 'email' $cfg
 $messages = @(& (Get-Module Send-FileViaEmail) { $script:messages.ToArray() })
 Assert ($messages.Count -eq 1 -and $messages[0].message.subject -eq 'literal {subject}') 'existing email helper gets caller config'
 Assert ($messages[0].message.attachments[0].contentBytes -eq [Convert]::ToBase64String([IO.File]::ReadAllBytes("$root/email/output.csv"))) 'existing helper attachment bytes'
+Assert ($messages[0].message.attachments[0].name -eq 'output.csv') 'existing helper attachment name stays a basename'
 Assert (($log -join "`n") -notmatch 'synthetic secret|synthetic connection') 'runner does not echo config'
+$null = New-Item -ItemType Directory "$root/email/nested"
+$cfg.fmt.args.Path = 'nested/report.csv'
+$null = Run 'email' $cfg
+$message = @(& (Get-Module Send-FileViaEmail) { $script:messages.ToArray() })[-1]
+Assert ($message.message.attachments[0].name -eq 'report.csv' -and $message.message.attachments[0].contentBytes -eq [Convert]::ToBase64String([IO.File]::ReadAllBytes("$root/email/nested/report.csv"))) 'nested artifact uses correct bytes without leaking directory in attachment name'
 
 $cfg = Config 'extension'
 @'
