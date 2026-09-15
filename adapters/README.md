@@ -54,7 +54,7 @@ for a formatter that already writes files, skip this bridge: select your own exp
 }
 ```
 
-`excel` passes options to ImportExcel's `Export-Excel`. the adapter owns Path, ExcelPackage, InputObject, PassThru, Show, KillExcel, Append, and NoClobber; do not supply them. `AutoSize` can require extra native support on non-Windows hosts. prove it on the actual runner if used. compare cell values and formatting, not ZIP-file hashes.
+`excel` passes options to ImportExcel's `Export-Excel`. the adapter owns Path, ExcelPackage, InputObject, PassThru, Show, KillExcel, Append, and NoClobber; do not supply them. `AutoSize` can require extra native support on non-Windows hosts. prove it on the actual runner if used. compare cell values and formatting, not ZIP-file hashes. embedded CRLF text becomes LF inside the workbook, matching native Export-Excel.
 
 all three formatters refuse existing output unless `overwrite: true` is explicit. replacement is staged; converter/export failure leaves the old file intact.
 

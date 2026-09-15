@@ -41,6 +41,13 @@ $cfg.transform = @{ module = 'DataAgent.Xlsx'; version = '0.4.0'; command = 'Exp
 $r = Run 'xlsx' $cfg
 $rows = @(Import-Excel -Path $r.artifacts[0].path -WorksheetName Rows)
 $expectedRows = @(Import-Csv "$repo/testing/DataAgent.Test/synthetic.csv")
+$expectedRows | Export-Excel "$root/native.xlsx" -WorksheetName Rows -TableStyle Medium6 -NoNumberConversion '*'
+$nativeRows = @(Import-Excel "$root/native.xlsx" -WorksheetName Rows)
+Assert (($rows | ConvertTo-Json -Compress) -eq ($nativeRows | ConvertTo-Json -Compress)) 'XLSX matches native Export-Excel on this OS'
+# XLSX/XML normalizes embedded CRLF to LF, including in native Export-Excel.
+foreach ($row in $expectedRows) {
+    foreach ($property in $row.PSObject.Properties) { $property.Value = $property.Value.Replace("`r`n", "`n").Replace("`r", "`n") }
+}
 Assert ($rows.Count -eq 5 -and ($rows | ConvertTo-Json -Compress) -eq ($expectedRows | ConvertTo-Json -Compress)) 'real XLSX cell values, order, quoting and multiline text'
 $cfg.transform.options.overwrite = $true; $r = Run 'xlsx' $cfg
 Assert (@(Import-Excel $r.artifacts[0].path).Count -eq 5) 'XLSX explicit replacement does not append'
