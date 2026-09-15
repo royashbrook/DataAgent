@@ -11,6 +11,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+      - name: Install workbook test dependency
+        shell: pwsh
+        run: Install-Module ImportExcel -RequiredVersion 7.8.10 -Scope CurrentUser -Force -Repository PSGallery
       - name: Offline acceptance
         shell: pwsh
         run: ./tests/acceptance.ps1

@@ -42,14 +42,26 @@ function Invoke-Sqlcmd {
     ,$table
 }
 '@
-Module Send-FileViaEmail 2.0.0.0 @'
-function Send-FileViaEmail($File, $Config) {
-    if ($Config.msgraph.client_secret -ne 'test-only' -or !(Test-Path -LiteralPath $File)) { throw 'bad mail arguments' }
-    if ([IO.Path]::GetFileName($File) -ne $File) { throw 'attachment name changed' }
-}
-'@
 Import-Module DataAgent -RequiredVersion 0.4.0 -Force
 Import-Module DataAgent.Test -RequiredVersion 0.4.0 -Force
+Import-Module DataAgent.Mail -RequiredVersion 0.4.0 -Force
+& (Get-Module DataAgent.Mail) {
+    $script:messages = [Collections.Generic.List[object]]::new()
+    $script:requests = 0
+    $script:failMail = $false
+    function script:Invoke-RestMethod {
+        [CmdletBinding()]
+        param($Uri, $Method, $Body, $Headers, $ContentType)
+        $script:requests++
+        if ($Uri -like 'https://login.microsoftonline.com/*') {
+            if ($Body.client_secret -ne 'test-only') { throw 'unexpected secret' }
+            return @{ access_token = 'test-only' }
+        }
+        if ($Uri -notlike 'https://graph.microsoft.com/v1.0/users/*/sendMail' -or $Headers.Authorization -ne 'Bearer test-only') { throw 'unexpected request' }
+        if ($script:failMail) { throw 'test-only provider detail must not escape' }
+        $script:messages.Add(([Text.Encoding]::UTF8.GetString($Body) | ConvertFrom-Json -AsHashtable))
+    }
+}
 $coreHash = (Get-FileHash "$repo/DataAgent/DataAgent.psm1").Hash
 $receipt = Test-DataAgent
 Assert ($receipt.status -eq 'completed' -and $receipt.rows -eq 5) 'test module runs real runner'
@@ -111,7 +123,7 @@ Assert ((Get-Location).Path -eq $location) 'location restored'
 $cfg = Config 'sql-mail'
 'select 1' | Set-Content "$root/sql-mail/input.sql"
 $cfg.source = @{ module = 'DataAgent.Sql'; version = '0.4.0'; command = 'Invoke-DataAgentSql'; options = @{ InputFile = 'input.sql'; OutputAs = 'DataTables' } }
-$cfg.destination = @{ module = 'DataAgent.Mail'; version = '0.4.0'; command = 'Send-DataAgentMail'; options = @{ mail = @{ to = @('example@example.invalid') }; msgraph = @{} } }
+$cfg.destination = @{ module = 'DataAgent.Mail'; version = '0.4.0'; command = 'Send-DataAgentMail'; options = @{ mail = @{ from = 'sender@example.invalid'; to = @('example@example.invalid') }; msgraph = @{ tenant_id = '00000000-0000-0000-0000-000000000001'; client_id = '00000000-0000-0000-0000-000000000002' } } }
 $env:CONNECTION_STRING = 'test-only'; $env:CLIENT_SECRET = 'test-only'
 $r = Run 'sql-mail' $cfg
 Assert ($r.rows -eq 1 -and $r.deliveries[0].outcome.state -eq 'submitted') 'DataTable rows and mail submission'
@@ -157,6 +169,8 @@ $cfg = Config 'bad-file'; $cfg.transform = @{ module = 'OutsideAdapter'; version
 Refuses { Run 'bad-file' $cfg } 'nonempty regular FileInfo'
 $cfg = Config 'missing-export'; $cfg.source.command = 'NotExported'
 Refuses { Run 'missing-export' $cfg } 'Adapter not exported'
+
+. "$PSScriptRoot/adapters.ps1"
 
 $packages = @("$repo/DataAgent") + @(Get-ChildItem "$repo/adapters", "$repo/testing" -Directory).FullName
 foreach ($package in $packages) {

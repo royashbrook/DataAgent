@@ -1,15 +1,15 @@
 @{
-    RootModule = 'DataAgent.Mail.psm1'
+    RootModule = 'DataAgent.Ftp.psm1'
     ModuleVersion = '0.4.0'
-    GUID = '96110483-3e59-4e05-9a5d-cf28b65fbdf3'
+    GUID = '5c00ffc9-c9f3-4a2d-a297-11cc4651d104'
     Author = 'Roy Ashbrook'
     Copyright = '(c) 2026 Roy Ashbrook. MIT License.'
-    Description = 'DataAgent.Mail: adapters for the DataAgent feed runner.'
+    Description = 'Ftp adapter for DataAgent.'
     PowerShellVersion = '7.4'
-    FunctionsToExport = @('Send-DataAgentMail')
+    FunctionsToExport = @('Send-DataAgentFtp')
     CmdletsToExport = @()
     VariablesToExport = @()
     AliasesToExport = @()
-    FileList = @('DataAgent.Mail.psd1', 'DataAgent.Mail.psm1', 'LICENSE')
+    FileList = @('DataAgent.Ftp.psd1', 'DataAgent.Ftp.psm1', 'LICENSE')
     PrivateData = @{ PSData = @{ Tags = @('ETL', 'DataAgent'); ProjectUri = 'https://github.com/royashbrook/DataAgent'; LicenseUri = 'https://github.com/royashbrook/DataAgent/blob/main/LICENSE' } }
 }

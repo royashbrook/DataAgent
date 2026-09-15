@@ -21,7 +21,11 @@ settings.json + job.ps1
 | DataAgent | run configured commands, cleanup, receipts | none |
 | DataAgent.Sql | `Invoke-DataAgentSql` | SqlServer 22.4.5.1 |
 | DataAgent.Csv | `Import-DataAgentCsv`, `Export-DataAgentCsv` | none |
-| DataAgent.Mail | `Send-DataAgentMail` | Send-FileViaEmail 2.0.0.0 |
+| DataAgent.Custom | `Export-DataAgentCustom` | your existing converter module |
+| DataAgent.Xlsx | `Export-DataAgentXlsx` | ImportExcel 7.8.10 |
+| DataAgent.Sftp | `Send-DataAgentSftp` | Posh-SSH 3.2.7 |
+| DataAgent.Ftp | `Send-DataAgentFtp` (explicit FTPS or plain FTP) | none |
+| DataAgent.Mail | `Send-DataAgentMail` (Microsoft Graph) | none |
 | DataAgent.Test | `Test-DataAgent`, fixture source, recording destination | DataAgent + DataAgent.Csv |
 
 PowerShell 7.4+. install only the adapters a job uses. the runner never installs modules.
@@ -81,23 +85,25 @@ Export-ModuleMember -Function Export-Example
 
 select that module and command under `transform`. the tests prove external adapters work with unchanged core bytes, including multiple files and destinations.
 
+the supplied [adapter options and coverage](adapters/README.md) include CSV quoting modes, XLSX, unchanged `ConvertTo-Custom($dt)` modules, SFTP, explicit FTPS, and mail attachments or message bodies. adding another source, formatter, or destination requires no runner edit.
+
 ## operations
 
 - logs are `<timestamp> <module>\<command> <status>` in `yyyyMMdd.log`, also on the information stream.
-- receipts record the current command **before** invoking it, then file hashes and returned outcomes. mail reports `submitted`, not provider-confirmed delivery. an interrupted or failed call can have an unknown external outcome. inspect before retrying; there is no automatic retry or resume.
+- receipts record the current command **before** invoking it, then file hashes and returned outcomes. mail reports `submitted`, not provider-confirmed delivery. an interrupted or failed call can have an unknown external outcome, including earlier files or messages within the same call. inspect before retrying; there is no automatic retry or resume.
 - `Get-DataAgentReceipt -SettingsPath ./settings.json` reads history. receipts live outside the feed under local application data, keyed by the resolved settings path. `DATAAGENT_STATE_ROOT` overrides the root with an absolute path.
-- `keepdays` controls receipt retention and aged output matching `purgefiles`. cleanup runs after formatting, or on an idle source. current artifacts, settings, and the current log are protected. CSV refuses existing output by default; `transform.options.overwrite: true` allows fixed-name replacement, staged beside the target before moving into place. CSV input must be outside the output directory.
+- `keepdays` controls receipt retention and aged output matching `purgefiles`. cleanup runs after formatting, or on an idle source. current artifacts, settings, and the current log are protected. supplied formatters refuse existing output by default; `transform.options.overwrite: true` allows staged fixed-name replacement. CSV input must be outside the output directory.
 - destinations run sequentially and receive all files. the first failure stops the run. no per-file routing, best-effort branch, scheduler, or retry engine is included. disable overlapping scheduled runs.
 
 ## upgrading from 0.3.0
 
 this is a breaking candidate. replace fixed `sql`/`mail` options with the descriptors in the example, install the chosen adapters, and remove `Mode`. `Test-DataAgent` moves to the optional test module; no `Mock` or `FixturePath` branch remains in the runner. `Get-DataAgentReceipt` now takes `SettingsPath`, not `WorkingDirectory`; old receipt files remain where they were and are not migrated. log text and cleanup timing changed, so check any log consumer and retention expectations before switching.
 
-the supplied adapters cover SQL or CSV input, native quoted CSV output, and mail submission. quote-stripped text, custom formats, XLSX, SFTP/FTP, Oracle, and conditional routing need their own adapters or a separate workflow. having an extension point is not evidence that those feeds are migration-ready.
+the supplied adapters cover SQL or CSV input and the output matrix linked above. Oracle, implicit FTPS, large-message upload sessions, and conditional routing are not supplied. a custom adapter can implement a feed-specific operation without changing the runner. having an extension point is not evidence that those feeds are migration-ready.
 
 ## verify
 
-`pwsh -NoProfile -File tests/acceptance.ps1` runs without network or real providers. tests include byte parity, external adapters, receipt failures, retention, `WhatIf`, and staged package imports. SQL/mail calls use test-only stubs; this is not a live-provider certification. CI runs on Windows, macOS, and Linux. on macOS, `tests/offline-macos.sh` additionally denies network access at the OS boundary.
+install ImportExcel 7.8.10 first, then `pwsh -NoProfile -File tests/acceptance.ps1` runs without network or real providers. tests include CSV/custom byte parity, real workbook contents, external adapters, receipt failures, retention, `WhatIf`, and staged package imports. SQL, Graph, SFTP, and FTP calls use test-only replacements; this is not a live-provider certification. CI runs on Windows, macOS, and Linux. on macOS, `bash tests/offline-macos.sh` additionally denies network access at the OS boundary.
 
 before adopting a feed: compare its exact output on the target OS, pin the runner's module versions, check logs and cleanup, then approve a scoped provider test. **legacy log-consumer compatibility is an open adoption blocker**, not a completed check: the new format has idle/completion signals but not the old strings or elapsed-time column. no live feed changes are part of this candidate.
 

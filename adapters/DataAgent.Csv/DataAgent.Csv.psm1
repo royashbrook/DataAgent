@@ -17,12 +17,17 @@ function Export-DataAgentCsv {
     $path = Join-Path $Context.directory $name
     if (!$PSCmdlet.ShouldProcess($path, $MyInvocation.MyCommand.Name)) { return }
     if ($Options.ContainsKey('overwrite') -and $Options.overwrite -isnot [bool]) { throw 'overwrite must be a boolean.' }
+    $quoting = if ($Options.quoting) { $Options.quoting } else { 'Always' }
+    if ($quoting -notin @('Always', 'AsNeeded', 'Never', 'Strip')) { throw 'Invalid CSV quoting.' }
     if (!$Options.overwrite -and (Test-Path -LiteralPath $path)) { throw "Export-DataAgentCsv: output exists: $name" }
     $columns = if ($Data[0] -is [Data.DataRow]) { @($Data[0].Table.Columns.ColumnName) } else { @($Data[0].PSObject.Properties.Name) }
     $temp = Join-Path $Context.directory ([IO.Path]::GetRandomFileName())
     [IO.File]::Open($temp, [IO.FileMode]::CreateNew).Dispose()
     try {
-        $Data | Select-Object $columns | Export-Csv -LiteralPath $temp -NoTypeInformation
+        $quotes = if ($quoting -eq 'Strip') { 'Always' } else { $quoting }
+        $lines = $Data | Select-Object $columns | ConvertTo-Csv -NoTypeInformation -UseQuotes $quotes
+        if ($quoting -eq 'Strip') { $lines = $lines | ForEach-Object { $_.Replace('"', '') } }
+        $lines | Set-Content -LiteralPath $temp -Encoding utf8NoBOM
         [IO.File]::Move($temp, $path, [bool]$Options.overwrite)
     } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp } }
     Get-Item -LiteralPath $path

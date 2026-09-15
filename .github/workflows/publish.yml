@@ -19,10 +19,11 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $packages = @('./DataAgent', './adapters/DataAgent.Csv', './adapters/DataAgent.Sql', './adapters/DataAgent.Mail', './testing/DataAgent.Test')
+          $packages = @('./DataAgent') + @(Get-ChildItem ./adapters -Directory).FullName + @('./testing/DataAgent.Test')
           $env:PSModulePath = (@($PWD.Path, "$PWD/adapters", "$PWD/testing", $env:PSModulePath) -join [IO.Path]::PathSeparator)
           Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -Repository PSGallery
-          Install-Module Send-FileViaEmail -RequiredVersion 2.0.0.0 -Scope CurrentUser -Force -Repository PSGallery
+          Install-Module ImportExcel -RequiredVersion 7.8.10 -Scope CurrentUser -Force -Repository PSGallery
+          Install-Module Posh-SSH -RequiredVersion 3.2.7 -Scope CurrentUser -Force -Repository PSGallery
           foreach ($path in $packages) {
             $name = Split-Path $path -Leaf
             $data = Test-ModuleManifest "$path/$name.psd1"
