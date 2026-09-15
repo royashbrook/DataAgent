@@ -79,6 +79,17 @@ $hash = (Get-FileHash $r.artifacts[0].path).Hash
 Refuses { Run 'export' $cfg } 'output exists'
 Assert ((Get-FileHash $r.artifacts[0].path).Hash -eq $hash) 'cleanup cannot erase colliding output'
 Assert (@(Get-DataAgentReceipt -SettingsPath "$root/export/settings.json" | Where-Object status -eq error).Count -eq 1) 'error receipt persisted'
+$cfg.transform.options.overwrite = $true
+'old target' | Set-Content "$root/export/output/test.csv"
+$r = Run 'export' $cfg
+Assert ((Get-FileHash $r.artifacts[0].path).Hash -eq (Get-FileHash "$root/expected.csv").Hash) 'explicit overwrite replaces a fixed target with complete CSV'
+$cfg.transform.options.overwrite = 'false'
+Refuses { Run 'export' $cfg } 'overwrite must be a boolean'
+$cfg = Config 'move-failure'; $cfg.transform.options.overwrite = $true
+$null = New-Item -ItemType Directory "$root/move-failure/output/test.csv"
+'keep' | Set-Content "$root/move-failure/output/test.csv/sentinel"
+Refuses { Run 'move-failure' $cfg } '(denied|exists|directory)'
+Assert ((Get-Content "$root/move-failure/output/test.csv/sentinel") -eq 'keep' -and @(Get-ChildItem "$root/move-failure/output" -File | Where-Object Extension -ne '.log').Count -eq 0) 'failed replacement preserves target and removes staging file'
 $cfg = Config 'cleanup'
 'old' | Set-Content "$root/cleanup/output/old.csv"
 'keep' | Set-Content "$root/cleanup/output/unrelated.txt"

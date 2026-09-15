@@ -86,7 +86,7 @@ select that module and command under `transform`. the tests prove external adapt
 - logs are `<timestamp> <module>\<command> <status>` in `yyyyMMdd.log`, also on the information stream.
 - receipts record the current command **before** invoking it, then file hashes and returned outcomes. mail reports `submitted`, not provider-confirmed delivery. an interrupted or failed call can have an unknown external outcome. inspect before retrying; there is no automatic retry or resume.
 - `Get-DataAgentReceipt -SettingsPath ./settings.json` reads history. receipts live outside the feed under local application data, keyed by the resolved settings path. `DATAAGENT_STATE_ROOT` overrides the root with an absolute path.
-- `keepdays` controls receipt retention and aged output matching `purgefiles`. cleanup runs after formatting, or on an idle source. current artifacts, settings, and the current log are protected. CSV refuses existing output before cleanup can erase it; CSV input must be outside the output directory.
+- `keepdays` controls receipt retention and aged output matching `purgefiles`. cleanup runs after formatting, or on an idle source. current artifacts, settings, and the current log are protected. CSV refuses existing output by default; `transform.options.overwrite: true` allows fixed-name replacement, staged beside the target before moving into place. CSV input must be outside the output directory.
 - destinations run sequentially and receive all files. the first failure stops the run. no per-file routing, best-effort branch, scheduler, or retry engine is included. disable overlapping scheduled runs.
 
 ## upgrading from 0.3.0
@@ -99,6 +99,6 @@ the supplied adapters cover SQL or CSV input, native quoted CSV output, and mail
 
 `pwsh -NoProfile -File tests/acceptance.ps1` runs without network or real providers. tests include byte parity, external adapters, receipt failures, retention, `WhatIf`, and staged package imports. SQL/mail calls use test-only stubs; this is not a live-provider certification. CI runs on Windows, macOS, and Linux. on macOS, `tests/offline-macos.sh` additionally denies network access at the OS boundary.
 
-before adopting a feed: compare its exact output on the target OS, pin the runner's module versions, check logs and cleanup, then approve a scoped provider test. no live feed changes are part of this candidate.
+before adopting a feed: compare its exact output on the target OS, pin the runner's module versions, check logs and cleanup, then approve a scoped provider test. **legacy log-consumer compatibility is an open adoption blocker**, not a completed check: the new format has idle/completion signals but not the old strings or elapsed-time column. no live feed changes are part of this candidate.
 
 MIT. see [LICENSE](LICENSE).

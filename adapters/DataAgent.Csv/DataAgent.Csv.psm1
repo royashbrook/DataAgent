@@ -16,9 +16,15 @@ function Export-DataAgentCsv {
     if (!$name -or $name -match '[/\\]' -or $name -in @('.', '..', ('{0:yyyyMMdd}.log' -f $Context.runAt))) { throw 'Invalid CSV filename.' }
     $path = Join-Path $Context.directory $name
     if (!$PSCmdlet.ShouldProcess($path, $MyInvocation.MyCommand.Name)) { return }
-    if (Test-Path -LiteralPath $path) { throw "Export-DataAgentCsv: output exists: $name" }
+    if ($Options.ContainsKey('overwrite') -and $Options.overwrite -isnot [bool]) { throw 'overwrite must be a boolean.' }
+    if (!$Options.overwrite -and (Test-Path -LiteralPath $path)) { throw "Export-DataAgentCsv: output exists: $name" }
     $columns = if ($Data[0] -is [Data.DataRow]) { @($Data[0].Table.Columns.ColumnName) } else { @($Data[0].PSObject.Properties.Name) }
-    $Data | Select-Object $columns | Export-Csv -LiteralPath $path -NoTypeInformation -NoClobber
+    $temp = Join-Path $Context.directory ([IO.Path]::GetRandomFileName())
+    [IO.File]::Open($temp, [IO.FileMode]::CreateNew).Dispose()
+    try {
+        $Data | Select-Object $columns | Export-Csv -LiteralPath $temp -NoTypeInformation
+        [IO.File]::Move($temp, $path, [bool]$Options.overwrite)
+    } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp } }
     Get-Item -LiteralPath $path
 }
 Export-ModuleMember -Function Import-DataAgentCsv, Export-DataAgentCsv
