@@ -60,8 +60,8 @@ Assert ($idleResult.Count -eq 1 -and $idleResult[0].status -eq 'idle' -and $idle
 Assert ((Receipt $idle).status -eq 'idle' -and @(Get-ChildItem $idle -Filter '*.csv').Count -eq 0) 'empty input writes no artifact and never delivers'
 
 $dry = New-Case 'dry'
-Invoke-DataAgentPipeline $cfg $dry $extract $transform { throw 'dry-run must never deliver' } -RunAt $runAt | Out-Null
-Assert ((Receipt $dry).status -eq 'dry-run' -and !(Receipt $dry).deliveries.Count) 'default dry-run writes artifact but skips the supplied delivery adapter'
+Invoke-DataAgentPipeline $cfg $dry $extract $transform { throw 'export-only must never deliver' } -RunAt $runAt | Out-Null
+Assert ((Receipt $dry).status -eq 'export-only' -and !(Receipt $dry).deliveries.Count) 'default export-only writes artifact but skips the supplied delivery adapter'
 
 $retention = New-Case 'retention'
 $old = Join-Path $retention 'old.csv'
@@ -191,10 +191,10 @@ Assert ((Get-FileHash $settingsFile).Hash -eq $settingsHash) 'config-driven job 
 
 $configured.etl.destination = 'email'
 Save-Settings $settingsFile $configured
-$dryResult = @(Invoke-DataAgent -SettingsPath $settingsFile -Mode DryRun -RunAt $runAt)
-Assert ($dryResult.Count -eq 1 -and $dryResult[0].status -eq 'dry-run' -and $dryResult[0].finishedAt) 'DryRun returns exactly one finalized receipt'
-Assert ((Receipt $configDir).status -eq 'dry-run' -and (Receipt $configDir).deliveries.Count -eq 0) 'configured email is not invoked by DryRun'
-Assert (@(Get-ChildItem $configDir -Filter '*.csv').Count -eq 1) 'DryRun defaults to temporary output, not the live output directory'
+$dryResult = @(Invoke-DataAgent -SettingsPath $settingsFile -Mode ExportOnly -RunAt $runAt)
+Assert ($dryResult.Count -eq 1 -and $dryResult[0].status -eq 'export-only' -and $dryResult[0].finishedAt) 'ExportOnly returns exactly one finalized receipt'
+Assert ((Receipt $configDir).status -eq 'export-only' -and (Receipt $configDir).deliveries.Count -eq 0) 'configured email is not invoked by ExportOnly'
+Assert (@(Get-ChildItem $configDir -Filter '*.csv').Count -eq 1) 'ExportOnly defaults to temporary output, not the live output directory'
 
 $configured.csv.path = 'missing-input.csv'
 Save-Settings $settingsFile $configured
@@ -248,6 +248,31 @@ try {
     $threw = $false
     try { Get-DataAgentReceipt $demo | Out-Null } catch { $threw = $true }
     Assert $threw 'relative state root refuses instead of changing meaning with working directory'
+} finally { $env:DATAAGENT_STATE_ROOT = $savedStateRoot }
+Remove-Module DataAgent
+Import-Module $manifest -Force
+$verbs = @(Get-Verb).Verb
+Assert (@((Get-Command -Module DataAgent).Name | Where-Object { $_.Split('-')[0] -notin $verbs }).Count -eq 0) 'all exported commands use approved verbs'
+$preview = New-Case 'whatif'
+$previewState = Join-Path $preview 'absent-state'
+$savedStateRoot = $env:DATAAGENT_STATE_ROOT
+try {
+    $env:DATAAGENT_STATE_ROOT = $previewState
+    $previewSettings = Join-Path $preview 'settings.json'
+    Copy-Item "$PSScriptRoot/../examples/settings.json" $previewSettings
+    $beforePreview = (Get-FileHash $previewSettings).Hash
+    foreach ($mode in @('Mock', 'ExportOnly', 'Live')) {
+        $result = @(Invoke-DataAgent -SettingsPath $previewSettings -Mode $mode -WhatIf)
+        Assert ($result.Count -eq 0) "$mode WhatIf returns no execution receipt"
+    }
+    Invoke-DataAgentPipeline $cfg $preview { throw 'WhatIf ran extract' } { throw 'WhatIf ran transform' } { throw 'WhatIf ran deliver' } -Mode Run -WhatIf
+    $previewContext = [pscustomobject]@{ ArtifactPath = "$preview/absent.csv"; StateDirectory = $previewState; Mode = 'Run' }
+    Export-DataAgentCsv @([pscustomobject]@{ value = 1 }) $previewContext -WhatIf
+    Write-DataAgentRecording $previewContext -WhatIf
+    Send-DataAgentMail $previewContext -WhatIf
+    Invoke-DataAgentSql $previewContext -WhatIf
+    Assert (!(Test-Path $previewState) -and @(Get-ChildItem $preview -File).Count -eq 1 -and (Get-FileHash $previewSettings).Hash -eq $beforePreview) 'WhatIf creates no state, artifact, log, or recording and leaves settings untouched'
+    Assert (@((Get-Command -Module DataAgent) | Where-Object { $_.Name -ne 'Get-DataAgentReceipt' -and (!$_.Parameters.ContainsKey('WhatIf') -or !$_.Parameters.ContainsKey('Confirm')) }).Count -eq 0) 'all state-changing exports expose WhatIf and Confirm'
 } finally { $env:DATAAGENT_STATE_ROOT = $savedStateRoot }
 $proof = [ordered]@{
     status = 'pass'; checks = $checks; powershell = $PSVersionTable.PSVersion.ToString()

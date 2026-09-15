@@ -10,7 +10,7 @@
         @{ ModuleName = 'Add-PrefixForLogging'; RequiredVersion = '1.0.0.2' }
         @{ ModuleName = 'Clear-Files'; RequiredVersion = '1.0.0.0' }
     )
-    FunctionsToExport = @('Invoke-DataAgent', 'Get-DataAgentReceipt', 'Invoke-DataAgentPipeline', 'Read-DataAgentSql', 'Export-DataAgentCsv', 'Send-DataAgentMail', 'Write-DataAgentRecording')
+    FunctionsToExport = @('Invoke-DataAgent', 'Get-DataAgentReceipt', 'Invoke-DataAgentPipeline', 'Invoke-DataAgentSql', 'Export-DataAgentCsv', 'Send-DataAgentMail', 'Write-DataAgentRecording')
     CmdletsToExport = @()
     VariablesToExport = @()
     AliasesToExport = @()

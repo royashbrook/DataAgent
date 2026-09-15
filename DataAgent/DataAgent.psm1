@@ -31,10 +31,10 @@ function Clear-RunState($Directory, $KeepDays) {
 }
 
 function Invoke-DataAgent {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory)][string] $SettingsPath,
-        [ValidateSet('Mock', 'DryRun', 'Live')][string] $Mode = 'Mock',
+        [ValidateSet('Mock', 'ExportOnly', 'Live')][string] $Mode = 'Mock',
         [string] $WorkingDirectory,
         [string] $FixturePath,
         [datetime] $RunAt = (Get-Date)
@@ -46,6 +46,10 @@ function Invoke-DataAgent {
     if ($cfg.etl.source -cnotin @('sql', 'csv') -or $cfg.etl.format -cne 'csv' -or $cfg.etl.destination -cnotin @('email', 'recording')) {
         throw 'etl requires source sql/csv, format csv, and destination email/recording.'
     }
+    $target = if ($WorkingDirectory) { $WorkingDirectory } elseif ($Mode -eq 'Live') { Split-Path -Parent $settings } else { 'a new temporary output directory' }
+    if (!$PSCmdlet.ShouldProcess("$settings -> $target", "Run $Mode feed: retention, extraction, artifact and receipt writes; delivery only in Live/Mock")) { return }
+    # One approval covers this run; nested adapters must not prompt halfway through it.
+    $ConfirmPreference = 'None'
     if (!$WorkingDirectory) {
         $WorkingDirectory = if ($Mode -eq 'Live') { Split-Path -Parent $settings } else { [IO.Directory]::CreateTempSubdirectory('dataagent-').FullName }
     }
@@ -68,7 +72,7 @@ function Invoke-DataAgent {
             if ($cfg.sql.InputFile -and ![IO.Path]::IsPathRooted($cfg.sql.InputFile)) {
                 $cfg.sql.InputFile = Join-Path (Split-Path $settings) $cfg.sql.InputFile
             }
-            $extract = { param($context) Read-DataAgentSql $context }
+            $extract = { param($context) Invoke-DataAgentSql $context }
         }
         $deliver = if ($cfg.etl.destination -eq 'recording') {
             { param($context) Write-DataAgentRecording $context }
@@ -82,19 +86,19 @@ function Invoke-DataAgent {
 }
 
 function Invoke-DataAgentPipeline {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory)][object] $Config,
         [Parameter(Mandatory)][string] $WorkingDirectory,
         [Parameter(Mandatory)][scriptblock] $Extract,
         [Parameter(Mandatory)][scriptblock] $Transform,
         [scriptblock] $Deliver,
-        [ValidateSet('DryRun', 'Run', 'Mock')][string] $Mode = 'DryRun',
+        [ValidateSet('ExportOnly', 'Run', 'Mock')][string] $Mode = 'ExportOnly',
         [datetime] $RunAt = (Get-Date),
         [string] $StateKeyDirectory
     )
     $ErrorActionPreference = 'Stop'
-    if ($Mode -ne 'DryRun' -and !$Deliver) { throw 'Run/Mock requires a delivery adapter.' }
+    if ($Mode -ne 'ExportOnly' -and !$Deliver) { throw 'Run/Mock requires a delivery adapter.' }
     $directory = Get-Item -LiteralPath $WorkingDirectory
     if (!$directory.PSIsContainer -or $directory.PSProvider.Name -ne 'FileSystem') {
         throw 'WorkingDirectory must be an existing filesystem directory dedicated to this feed.'
@@ -108,6 +112,8 @@ function Invoke-DataAgentPipeline {
     if ([string]::IsNullOrWhiteSpace($file) -or $file -match '[/\\]' -or $file -in @('.', '..')) {
         throw 'file_format must resolve to a filename, not a path.'
     }
+    if (!$PSCmdlet.ShouldProcess($directory.FullName, "Run $Mode pipeline: retention, callbacks, artifact and receipt writes")) { return }
+    $ConfirmPreference = 'None'
     $id = [guid]::NewGuid().ToString('N')
     if (!$StateKeyDirectory) { $StateKeyDirectory = $directory.FullName }
     $stateDirectory = Get-StateDirectory $StateKeyDirectory
@@ -172,8 +178,8 @@ function Invoke-DataAgentPipeline {
                 })
                 $receipt.phases.transformEnded = (Get-Date).ToUniversalTime().ToString('o')
                 l 'Use Data'
-                if ($Mode -eq 'DryRun') {
-                    $receipt.status = 'dry-run'
+                if ($Mode -eq 'ExportOnly') {
+                    $receipt.status = 'export-only'
                 } else {
                     # An interrupted attempt is ambiguous. Never automatically retry a send.
                     $receipt.status = 'delivery-attempted'
@@ -226,10 +232,11 @@ function Invoke-DataAgentPipeline {
     [pscustomobject]$receipt
 }
 
-function Read-DataAgentSql {
-    [CmdletBinding()]
+function Invoke-DataAgentSql {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
     param([Parameter(Mandatory)] $Context)
     $ErrorActionPreference = 'Stop'
+    if (!$PSCmdlet.ShouldProcess('configured SQL connection', 'Execute configured SQL (not enforced read-only)')) { return }
     if ([string]::IsNullOrWhiteSpace($env:CONNECTION_STRING)) { throw 'CONNECTION_STRING is required.' }
     Import-Module SqlServer -RequiredVersion 22.4.5.1 -Cmdlet Invoke-Sqlcmd
     $sqlargs = $Context.Config.sql | ConvertTo-Json | ConvertFrom-Json -AsHashtable
@@ -240,8 +247,9 @@ function Read-DataAgentSql {
 }
 
 function Export-DataAgentCsv {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
     param([Parameter(Mandatory)][object[]] $Rows, [Parameter(Mandatory)] $Context)
+    if (!$PSCmdlet.ShouldProcess($Context.ArtifactPath, 'Export CSV')) { return }
     $columns = if ($Rows[0] -is [System.Data.DataRow]) {
         @($Rows[0].Table.Columns.ColumnName)
     } else {
@@ -251,10 +259,11 @@ function Export-DataAgentCsv {
 }
 
 function Send-DataAgentMail {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
     param([Parameter(Mandatory)] $Context)
     $ErrorActionPreference = 'Stop'
     if ($Context.Mode -ne 'Run') { throw 'Mail delivery requires Run mode.' }
+    if (!$PSCmdlet.ShouldProcess($Context.ArtifactPath, 'Submit file to configured mail recipients')) { return }
     if ([string]::IsNullOrWhiteSpace($env:CLIENT_SECRET)) { throw 'CLIENT_SECRET is required.' }
     $cfg = $Context.Config | ConvertTo-Json -Depth 20 | ConvertFrom-Json
     if ($cfg.msgraph.client_secret) { throw 'client_secret belongs in the environment, not settings.' }
@@ -266,8 +275,9 @@ function Send-DataAgentMail {
 }
 
 function Write-DataAgentRecording {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
     param([Parameter(Mandatory)] $Context)
+    if (!$PSCmdlet.ShouldProcess($Context.StateDirectory, 'Write mock delivery recording')) { return }
     $destination = @{ path = 'local-recording'; from = 'sender@example.invalid'; to = @('sink@example.invalid'); subject = 'Synthetic feed proof' }
     $record = @{
         mock = $true; destination = $destination
@@ -279,4 +289,4 @@ function Write-DataAgentRecording {
         id = "mock-$($Context.RunId)"; acknowledgment = 'local recording written, no external delivery' }
 }
 
-Export-ModuleMember -Function Invoke-DataAgent, Get-DataAgentReceipt, Invoke-DataAgentPipeline, Read-DataAgentSql, Export-DataAgentCsv, Send-DataAgentMail, Write-DataAgentRecording
+Export-ModuleMember -Function Invoke-DataAgent, Get-DataAgentReceipt, Invoke-DataAgentPipeline, Invoke-DataAgentSql, Export-DataAgentCsv, Send-DataAgentMail, Write-DataAgentRecording

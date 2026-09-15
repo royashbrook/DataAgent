@@ -18,7 +18,7 @@ Copy [examples/settings.json](examples/settings.json) and
 [examples/job.ps1](examples/job.ps1) into a new directory. The entire job is:
 
 ```powershell
-param([ValidateSet('Mock','DryRun','Live')][string]$Mode='Mock')
+param([ValidateSet('Mock','ExportOnly','Live')][string]$Mode='Mock')
 Import-Module DataAgent -RequiredVersion 0.3.0 -ErrorAction Stop
 Invoke-DataAgent -SettingsPath "$PSScriptRoot/settings.json" -Mode $Mode
 ```
@@ -52,13 +52,21 @@ your scheduler → job.ps1 + settings.json → Invoke-DataAgent
 | Mode | Source | Delivery | Default output |
 | --- | --- | --- | --- |
 | Mock (default) | Packaged CSV or `-FixturePath` | Local mock recording | New temporary directory |
-| DryRun | Configured source, including real SQL | None | New temporary directory |
+| ExportOnly | Configured source, including real SQL | None | New temporary directory |
 | Live | Configured source | Configured destination | Settings directory |
 
-**DryRun can read a real database.** Mock is the no-external-I/O rehearsal.
+**ExportOnly can read a real database.** Mock is the no-external-I/O rehearsal.
+SQL text is trusted configuration: read-only behavior is not enforced. A query
+with writes can change the database even in ExportOnly.
 All modes run retention in their output directory; choose a dedicated directory.
 `-WorkingDirectory` must exist. `-RunAt` controls the artifact name and log date,
 not the current-time retention cutoff.
+
+`Invoke-DataAgent -SettingsPath ./settings.json -Mode Live -WhatIf` previews the
+whole run without executing it: no source query, callbacks, cleanup, output,
+receipt, or send. `-Confirm` asks once before the run; approval covers its nested
+stages. The pipeline and each state-changing exported adapter also support these
+parameters when called directly. WhatIf returns no receipt, since nothing ran.
 
 ## Configure a feed
 
@@ -107,7 +115,7 @@ Receipts and mock recordings live under the user's LocalApplicationData/DataAgen
 directory, keyed by the resolved settings-directory path. Set the absolute
 `DATAAGENT_STATE_ROOT` environment variable to choose another root. They do not
 accumulate in the feed repository. Output artifacts and daily logs stay in the
-chosen output directory. Temporary mock/dry-run output is not automatically
+chosen output directory. Temporary mock/export-only output is not automatically
 removed by a later run in a different temporary directory.
 
 Receipts include a run ID, mode, row count, phase timestamps, artifact byte count
@@ -133,12 +141,19 @@ from custom adapters, and receipts contain paths and delivery metadata.
 `Invoke-DataAgentPipeline` exposes `-Extract` (get data), `-Transform` (format), and
 `-Deliver` (use data) scriptblocks. Extract receives a context; Transform receives
 rows and context and must write `context.ArtifactPath`; Deliver receives context
-and returns one outcome dictionary. Its default mode is DryRun; Run/Mock require
+and returns one outcome dictionary. Its default mode is ExportOnly; Run/Mock require
 a delivery adapter. Custom scriptblocks are trusted code, not sandboxed plugins.
 
-The built-in helpers are `Read-DataAgentSql`, `Export-DataAgentCsv`,
+The built-in helpers are `Invoke-DataAgentSql`, `Export-DataAgentCsv`,
 `Send-DataAgentMail`, and `Write-DataAgentRecording`. Their module-specific nouns
 avoid collisions with other modules' commands.
+
+Naming follows Microsoft's [approved verbs](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/approved-verbs-for-windows-powershell-commands):
+Invoke runs synchronously; Start would imply asynchronous work. SQL uses Invoke
+because it executes caller-supplied statements, not an enforced read-only query.
+State-changing commands implement [ShouldProcess](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/creating-a-cmdlet-that-modifies-the-system)
+for WhatIf and Confirm. Mock and ExportOnly are execution modes, not substitutes for
+WhatIf.
 
 ## Development and release checks
 
