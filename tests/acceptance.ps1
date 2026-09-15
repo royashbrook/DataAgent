@@ -42,7 +42,7 @@ Assert ((Get-FileHash "$root/csv/output.csv").Hash -eq (Get-FileHash $expected).
 (Get-Item "$root/csv/old.csv").LastWriteTime = (Get-Date).AddDays(-11)
 $null = Run 'csv' $cfg
 Assert (!(Test-Path "$root/csv/old.csv")) 'existing Clear-Files retention'
-Assert ((Get-Location).Path -eq "$root/csv") 'module stays in calling script directory'
+Assert ((Get-Location).Path -eq (Join-Path $root 'csv')) 'module stays in calling script directory'
 Assert ((Get-Content "$root/csv/$((Get-Date).ToString('yyyyMMdd')).log" -Raw) -match '\tEnd') 'module appends daily job log'
 Assert (!(Test-Path "$root/csv/*.receipt.json")) 'no receipt artifacts'
 
@@ -102,7 +102,7 @@ $seen = & (Get-Module -All SqlServer) { $script:seen }
 Assert ($seen.ConnectionString -eq 'synthetic connection' -and $seen.InputFile -eq 'rows.csv' -and $seen.QueryTimeout -eq 37) 'SQL arguments and relative caller path pass through'
 $cfg.src.args.Query = 'fail'
 Refuses { Run 'sql' $cfg } 'source failed'
-Assert ((Get-Location).Path -eq "$root/sql") 'job directory remains after failure'
+Assert ((Get-Location).Path -eq (Join-Path $root 'sql')) 'job directory remains after failure'
 $null = New-Item -ItemType Directory "$root/tee-failure"
 Copy-Item "$repo/examples/job.ps1" "$root/tee-failure/job.ps1"
 @{ src = @{ adapter='sql'; args=@{Query='fail'} }; fmt=@{adapter='csv';args=@{Path='output.csv'}};dst=@{adapter='email';args=@{cfg=@{msgraph=@{}}}} } |
@@ -165,7 +165,7 @@ Assert ($messages[0].message.attachments[0].name -eq 'output.csv') 'existing hel
 Assert (($log -join "`n") -notmatch 'synthetic secret|synthetic connection') 'runner does not echo config'
 Refuses { & "$repo/DataAgent/dst/email.ps1" -Data @('one.csv','two.csv') -Options $cfg.dst.args } 'one file'
 Assert (@(& (Get-Module Send-FileViaEmail) { $script:messages.ToArray() }).Count -eq 1) 'multiple files refused before any email'
-Assert ((Get-Location).Path -eq "$root/email") 'email does not change directory'
+Assert ((Get-Location).Path -eq (Join-Path $root 'email')) 'email does not change directory'
 
 $cfg = Config 'extension'
 @'
