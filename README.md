@@ -1,110 +1,78 @@
 # DataAgent
 
-run a feed from config. keep the source, format, and destination outside the runner.
+the repeated part of a feed job: get data, format it, send it. use the tools you already use.
 
-**0.4.0 is a review candidate, not a published upgrade.** the published 0.3.0 API is documented at [v0.3.0](https://github.com/royashbrook/DataAgent/tree/v0.3.0).
+**0.4.0 is an unmerged review candidate.** [0.3.0](https://github.com/royashbrook/DataAgent/tree/v0.3.0) remains the published version. no production migration is implied.
 
-```text
-settings.json + job.ps1
-          |
-    Invoke-DataAgent
-          |
-   source -> records -> transform -> files -> destination(s)
-          |
-     log + receipt
+## the job
+
+```powershell
+Import-Module DataAgent -RequiredVersion 0.4.0
+Invoke-DataAgent -Config $cfg -WorkingDirectory $PSScriptRoot
 ```
 
-## modules
+`$cfg` is a hashtable supplied by the caller. load JSON if useful, then add runtime values such as credentials. DataAgent assumes no environment variable names and does not print configuration. [settings.json](examples/settings.json) and [job.ps1](examples/job.ps1) show SQL + CSV + email, with caller-selected environment variables and the existing `yyyyMMdd.log` tee wrapper.
 
-| module | job | dependencies |
+the module emits ordinary output and `l` messages. the caller owns `*>&1` redirection and `Tee-Object`; there is no second logger, receipt directory, hash ledger, scheduler, or retry engine. exceptions propagate. the example catches a terminating error so Tee records it, then exits 1 for the job runner; a bare tee pipeline misses that error in the file. working directory defaults to the caller's current location, never the module folder; pass the job folder explicitly as above. it is restored on exit, including errors.
+
+`Invoke-DataAgent -Config $cfg -WhatIf` skips the entire run, including adapter imports and cleanup. only this public entrypoint advertises WhatIf. adapters are internal scripts, not independently exported commands or packages.
+
+## adapters
+
+each descriptor is `{ "adapter": "name", "args": { ... } }`. `src` and `fmt` take one descriptor; `dst` takes one or a list, or can be omitted to format only. every destination receives all generated files, in sequence; a failure stops the job. no conditional routing or best-effort branches are implied.
+
+| folder | adapters | existing operation |
 |---|---|---|
-| DataAgent | run configured commands, cleanup, receipts | none |
-| DataAgent.Sql | `Invoke-DataAgentSql` | SqlServer 22.4.5.1 |
-| DataAgent.Csv | `Import-DataAgentCsv`, `Export-DataAgentCsv` | none |
-| DataAgent.Custom | `Export-DataAgentCustom` | your existing converter module |
-| DataAgent.Xlsx | `Export-DataAgentXlsx` | ImportExcel 7.8.10 |
-| DataAgent.Sftp | `Send-DataAgentSftp` | Posh-SSH 3.2.7 |
-| DataAgent.Ftp | `Send-DataAgentFtp` (explicit FTPS or plain FTP) | none |
-| DataAgent.Mail | `Send-DataAgentMail` (Microsoft Graph) | none |
-| DataAgent.Test | `Test-DataAgent`, fixture source, recording destination | DataAgent + DataAgent.Csv |
+| `src` | `sql`, `csv` | Invoke-Sqlcmd, Import-Csv |
+| `fmt` | `csv`, `xlsx`, `custom` | ConvertTo-Csv + Set-Content, Export-Excel, ConvertTo-Custom |
+| `dst` | `email`, `sftp`, `ftp`, `ftps` | Send-FileViaEmail, Posh-SSH, .NET FTP |
 
-PowerShell 7.4+. install only the adapters a job uses. the runner never installs modules.
+no records means `No data available` and no formatting or sending. formatters return files; none also means idle. built-ins use ordinary direct-write behavior, including overwrite, rather than staging or refusing existing output. run in a dedicated job directory without overlapping workers, just like a standalone feed job.
 
-## try the candidate
+### source
 
-from this checkout:
+`src/sql` forwards `args` to Invoke-Sqlcmd; `src/csv` forwards them to Import-Csv. relative paths resolve in the job directory. pass a connection string, integrated-auth settings, or other supported arguments directly; credentials need not come from a particular environment variable. keep secrets out of committed config and logs.
 
-```powershell
-$env:PSModulePath = (@($PWD.Path, "$PWD/adapters", "$PWD/testing", $env:PSModulePath) -join [IO.Path]::PathSeparator)
-Import-Module DataAgent.Test -RequiredVersion 0.4.0
-Test-DataAgent
-# or: Test-DataAgent -FixturePath /path/to/your/synthetic.csv
-```
+### format
 
-this creates a temporary output directory and returns a receipt. it uses the real CSV adapter, but no SQL, mail, credentials, or network. the packaged fixture is generic; use your own synthetic rows to check a feed's bytes.
+`file_format`, when provided, is formatted with the run's current date and supplied as `fmt.args.Path`. otherwise supply Path yourself.
 
-## run a job
+- `csv`: Path, optional Encoding (default utf8NoBOM), and ConvertTo-Csv arguments such as UseQuotes (Always/AsNeeded/Never), Delimiter, NoHeader. `StripQuotes: true` reproduces removing every double quote, including quotes in data. unquoted modes can be lossy with commas/newlines; use the feed's required format. source column order is retained.
+- `xlsx`: arguments pass through to Export-Excel, including Path, WorksheetName, AutoSize, and TableStyle. workbook behavior is the helper's, not a new overwrite policy. verify cells/layout, not ZIP hashes. AutoSize may need native support on non-Windows hosts.
+- `custom`: `args.Module` names the existing module exporting `ConvertTo-Custom($dt)`; `args.Path` is the output. the bridge passes a DataTable and writes returned text as UTF-8 without BOM. no converter rewrite required.
 
-[settings.json](examples/settings.json) selects SQL, CSV, and mail. [job.ps1](examples/job.ps1) is the whole consumer:
+### destination
+
+- `email`: `args` pass through to Send-FileViaEmail (`cfg`, optional `contentType`); the adapter supplies `file`. several files mean separate calls/messages. no new multi-attachment/body API or client-side size policy. provider limits still apply.
+- `sftp`: `args.connect` passes to New-SFTPSession and `args.send` to Set-SFTPItem. supply Credential, ComputerName, Destination, and the host-key/overwrite policy you actually intend. the session closes even on failure. prefer verified trusted hosts; `Force` on connection bypasses host-key validation.
+- `ftp` / `ftps`: select the protocol explicitly. args are `Uri` (remote directory, `ftp://host/path/`) and `Credential` (PSCredential or .NET NetworkCredential). FTPS enables explicit TLS on the FTP connection; implicit FTPS is not supported. plain FTP sends credentials and data unencrypted. both upload with normal replacement behavior.
 
 ```powershell
-Import-Module DataAgent -RequiredVersion 0.4.0 -ErrorAction Stop
-Invoke-DataAgent -SettingsPath "$PSScriptRoot/settings.json"
-```
-
-that is a real run. first install the configured adapter versions and their dependencies. supply `CONNECTION_STRING` and `CLIENT_SECRET` through the job environment, never settings. SQL options are passed to `Invoke-Sqlcmd`; relative `InputFile` paths resolve beside settings. mail options contain `mail` and `msgraph`, without `client_secret`.
-
-`-WhatIf` reads and checks the config but imports no adapters and performs no cleanup, query, write, or delivery. omit `destination` to export without sending. `-WorkingDirectory` selects an existing output folder; otherwise output goes beside settings.
-
-## add an adapter
-
-an adapter is an exported command in an ordinary, explicitly installed PowerShell module. no registry, base class, or core edit. each config descriptor has `module`, `version`, `command`, and optional `options`. `destination` accepts one descriptor or a list.
-
-all commands receive `-Data`, `-Options` (hashtable), and `-Context` (hashtable):
-
-| role | receives | returns on the success stream |
-|---|---|---|
-| source | empty data | records; none means idle |
-| transform | source records | one or more nonempty regular `FileInfo` objects; none means idle |
-| destination | all generated files | outcome dictionaries with `state`; `confirmed` also requires `acknowledgment` |
-
-context contains `runId`, `runAt`, `directory`, `configDirectory`, and `stateDirectory`. keep logs off the success stream. throw to fail the run. adapters own their provider checks, credential handling, format, and overwrite policy. configuration selects executable code: review it like a script, not untrusted input.
-
-for example, a separately installed formatter can expose:
-
-```powershell
-function Export-Example {
-    param($Data, [hashtable] $Options, [hashtable] $Context)
-    $path = Join-Path $Context.directory $Options.filename
-    if (Test-Path -LiteralPath $path) { throw 'output exists' }
-    $Data | ConvertTo-Json | Set-Content -LiteralPath $path
-    Get-Item -LiteralPath $path
+$cfg.dst = @{
+    adapter = 'sftp'
+    args = @{
+        connect = @{ ComputerName = 'files.example.invalid'; Credential = $credential; ErrorOnUntrusted = $true }
+        send = @{ Destination = '/incoming'; Force = $true }
+    }
 }
-Export-ModuleMember -Function Export-Example
 ```
 
-select that module and command under `transform`. the tests prove external adapters work with unchanged core bytes, including multiple files and destinations.
+### custom adapter
 
-the supplied [adapter options and coverage](adapters/README.md) include CSV quoting modes, XLSX, unchanged `ConvertTo-Custom($dt)` modules, SFTP, explicit FTPS, and mail attachments or message bodies. adding another source, formatter, or destination requires no runner edit.
+instead of a built-in name, set `adapter` to a `.ps1` path (relative to the job directory or absolute). no core edit or registry. every script receives `-Data` and `-Options`. sources return records; formatters return FileInfo objects; destinations perform their operation. keep progress off the success stream when returning records/files. config selects executable code and is trusted like the job script itself.
 
-## operations
+## dependencies and cleanup
 
-- logs are `<timestamp> <module>\<command> <status>` in `yyyyMMdd.log`, also on the information stream.
-- receipts record the current command **before** invoking it, then file hashes and returned outcomes. mail reports `submitted`, not provider-confirmed delivery. an interrupted or failed call can have an unknown external outcome, including earlier files or messages within the same call. inspect before retrying; there is no automatic retry or resume.
-- `Get-DataAgentReceipt -SettingsPath ./settings.json` reads history. receipts live outside the feed under local application data, keyed by the resolved settings path. `DATAAGENT_STATE_ROOT` overrides the root with an absolute path.
-- `keepdays` controls receipt retention and aged output matching `purgefiles`. cleanup runs after formatting, or on an idle source. current artifacts, settings, and the current log are protected. supplied formatters refuse existing output by default; `transform.options.overwrite: true` allows staged fixed-name replacement. CSV input must be outside the output directory.
-- destinations run sequentially and receive all files. the first failure stops the run. no per-file routing, best-effort branch, scheduler, or retry engine is included. disable overlapping scheduled runs.
+install only the helpers the job uses. the runner never installs anything. tested versions: Add-PrefixForLogging 1.0.0.2, Clear-Files 1.0.0.0, SqlServer 22.4.5.1, Send-FileViaEmail 2.0.0.0, ImportExcel 7.8.10, Posh-SSH 3.2.7. PowerShell 7.4+. pin these in the runner's provisioning, not in every adapter.
 
-## upgrading from 0.3.0
+Add-PrefixForLogging is used for `l`. when `purgefiles` is configured, Clear-Files receives the config (`keepdays`, `purgefiles`) before querying, matching the existing job sequence. its deletion behavior is unchanged: give it a dedicated output directory and deliberate patterns. no additional cleanup/state policy is imposed.
 
-this is a breaking candidate. replace fixed `sql`/`mail` options with the descriptors in the example, install the chosen adapters, and remove `Mode`. `Test-DataAgent` moves to the optional test module; no `Mock` or `FixturePath` branch remains in the runner. `Get-DataAgentReceipt` now takes `SettingsPath`, not `WorkingDirectory`; old receipt files remain where they were and are not migrated. log text and cleanup timing changed, so check any log consumer and retention expectations before switching.
+## test and adoption
 
-the supplied adapters cover SQL or CSV input and the output matrix linked above. Oracle, implicit FTPS, large-message upload sessions, and conditional routing are not supplied. a custom adapter can implement a feed-specific operation without changing the runner. having an extension point is not evidence that those feeds are migration-ready.
+optional `DataAgent.Test` exports Test-DataAgent: a synthetic CSV input through the real runner and formatter, in a temporary directory. `-FixturePath` selects another synthetic fixture. no production mock mode.
 
-## verify
+from a checkout, add the repo and `testing` directory to PSModulePath. install the helper versions listed in `.github/workflows/test.yml`, then run `pwsh -NoProfile -File tests/acceptance.ps1`. it uses real logging, cleanup, email formatting and XLSX helpers; SQL/SFTP/FTP/HTTP boundaries are replaced inside the test process. `bash tests/offline-macos.sh` additionally denies network access at the OS boundary. these are not live-provider tests.
 
-install ImportExcel 7.8.10 first, then `pwsh -NoProfile -File tests/acceptance.ps1` runs without network or real providers. tests include CSV/custom byte parity, real workbook contents, external adapters, receipt failures, retention, `WhatIf`, and staged package imports. SQL, Graph, SFTP, and FTP calls use test-only replacements; this is not a live-provider certification. CI runs on Windows, macOS, and Linux. on macOS, `bash tests/offline-macos.sh` additionally denies network access at the OS boundary.
-
-before adopting a feed: compare its exact output on the target OS, pin the runner's module versions, check logs and cleanup, then approve a scoped provider test. **legacy log-consumer compatibility is an open adoption blocker**, not a completed check: the new format has idle/completion signals but not the old strings or elapsed-time column. no live feed changes are part of this candidate.
+this changes the candidate API again: only Invoke-DataAgent is exported; config uses src/fmt/dst, adapters are bundled, and receipts are removed. earlier receipt files are left untouched. cache filtering, acknowledgment/retry policies, conditional routing, and multi-attachment/body email are not implemented. before adopting any feed, prove its output/layout, runner identity and dependencies, cleanup, and scoped provider behavior. nothing here changes a live feed.
 
 MIT. see [LICENSE](LICENSE).

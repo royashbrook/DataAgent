@@ -1,190 +1,184 @@
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $root = [IO.Directory]::CreateTempSubdirectory('dataagent-acceptance-').FullName
-$env:DATAAGENT_STATE_ROOT = "$root/state"
-$env:PSModulePath = (@($repo, "$repo/adapters", "$repo/testing", "$root/modules", $env:PSModulePath) -join [IO.Path]::PathSeparator)
-$script:checks = 0
-function Assert($Condition, $Name) {
-    if (!$Condition) { throw "FAIL: $Name" }
-    $script:checks++
+$before = (Get-Location).Path
+$priorModules = $env:PSModulePath
+$env:PSModulePath = (@($repo, "$repo/testing", "$root/modules", $priorModules) -join [IO.Path]::PathSeparator)
+$checks = 0
+function Assert($Condition, $Name) { if (!$Condition) { throw "FAIL: $Name" }; $script:checks++ }
+function Refuses([scriptblock]$Action, $Pattern) {
+    try { & $Action | Out-Null } catch { Assert ("$_" -match $Pattern) "refusal: $Pattern"; return }
+    throw "Expected refusal: $Pattern"
 }
-function Refuses($Action, $Pattern) {
-    try { & $Action; throw 'accepted unexpectedly' } catch { Assert ($_.ToString() -match $Pattern) "refuses $Pattern" }
+function Module($Name, $Code) {
+    $null = New-Item -ItemType Directory "$root/modules/$Name" -Force
+    $Code | Set-Content "$root/modules/$Name/$Name.psm1"
 }
 function Config($Name) {
-    $null = New-Item -ItemType Directory "$root/$Name/output" -Force
-    @{
-        keepdays = 10; purgefiles = '*.csv,*.log'
-        source = @{ module = 'DataAgent.Test'; version = '0.4.0'; command = 'Read-DataAgentFixture' }
-        transform = @{ module = 'DataAgent.Csv'; version = '0.4.0'; command = 'Export-DataAgentCsv'; options = @{ file_format = 'test.csv' } }
-        destination = @{ module = 'DataAgent.Test'; version = '0.4.0'; command = 'Write-DataAgentTestReceipt' }
-    }
+    $null = New-Item -ItemType Directory "$root/$Name"
+    @{ keepdays = 10; purgefiles = '*.csv,*.log'; src = @{ adapter = 'csv'; args = @{ LiteralPath = "$repo/testing/DataAgent.Test/synthetic.csv" } }; fmt = @{ adapter = 'csv'; args = @{ Path = 'output.csv' } } }
 }
-function Run($Name, $Config, [switch]$WhatIf) {
-    $Config | ConvertTo-Json -Depth 12 | Set-Content "$root/$Name/settings.json"
-    Invoke-DataAgent -SettingsPath "$root/$Name/settings.json" -WorkingDirectory "$root/$Name/output" -WhatIf:$WhatIf
-}
-function Module($Name, $Version, $Code) {
-    $path = New-Item -ItemType Directory "$root/modules/$Name/$Version" -Force
-    $Code | Set-Content "$path/$Name.psm1"
-    New-ModuleManifest -Path "$path/$Name.psd1" -RootModule "$Name.psm1" -ModuleVersion $Version -FunctionsToExport '*' -PowerShellVersion 7.4
-}
+function Run($Name, $Config) { @(Invoke-DataAgent -Config $Config -WorkingDirectory "$root/$Name") }
 
-# Fake providers exist only in this test process. No real credentials or calls.
-Module SqlServer 22.4.5.1 @'
+Import-Module "$repo/DataAgent/DataAgent.psd1" -Force
+Assert (@((Get-Module DataAgent).ExportedCommands.Keys) -ceq 'Invoke-DataAgent') 'one public production command'
+$core = (Get-FileHash "$repo/DataAgent/DataAgent.psm1").Hash
+$cfg = Config 'csv'
+$log = Run 'csv' $cfg
+$expected = "$root/native.csv"
+Import-Csv "$repo/testing/DataAgent.Test/synthetic.csv" | Export-Csv $expected -NoTypeInformation
+Assert ((Get-FileHash "$root/csv/output.csv").Hash -eq (Get-FileHash $expected).Hash) 'native CSV byte parity'
+foreach ($phase in @('Start', 'Cleanup', 'Get Data', 'Data Found. Formatting File.', 'Use Data', 'End')) {
+    Assert (@($log | Where-Object { $_ -match ("^\d+/\d+/\d+ .*\t\s*\d+\t" + [regex]::Escape($phase) + '$') }).Count -eq 1) "existing l prefix and phase: $phase"
+}
+'old output' | Set-Content "$root/csv/output.csv"
+$null = Run 'csv' $cfg
+Assert ((Get-FileHash "$root/csv/output.csv").Hash -eq (Get-FileHash $expected).Hash) 'ordinary overwrite without a toggle'
+'expired' | Set-Content "$root/csv/old.csv"
+(Get-Item "$root/csv/old.csv").LastWriteTime = (Get-Date).AddDays(-11)
+$null = Run 'csv' $cfg
+Assert (!(Test-Path "$root/csv/old.csv")) 'existing Clear-Files retention'
+Assert ((Get-Location).Path -eq $before) 'caller location restored'
+Assert (!(Test-Path "$root/csv/*.receipt.json")) 'no receipt artifacts'
+
+foreach ($mode in @('Always', 'AsNeeded', 'Never', 'Strip')) {
+    $c = Config $mode
+    $c.fmt.args.UseQuotes = if ($mode -eq 'Strip') { 'Always' } else { $mode }
+    $c.fmt.args.StripQuotes = $mode -eq 'Strip'
+    $null = Run $mode $c
+    $lines = Import-Csv "$repo/testing/DataAgent.Test/synthetic.csv" | ConvertTo-Csv -UseQuotes $c.fmt.args.UseQuotes
+    if ($mode -eq 'Strip') { $lines = $lines | ForEach-Object { $_.Replace('"', '') } }
+    $lines | Set-Content $expected -Encoding utf8NoBOM
+    Assert ((Get-FileHash "$root/$mode/output.csv").Hash -eq (Get-FileHash $expected).Hash) "$mode native CSV bytes"
+}
+$cfg = Config 'headerless'; $cfg.fmt.args.NoHeader = $true; $cfg.fmt.args.StripQuotes = $true
+$null = Run 'headerless' $cfg
+Import-Csv "$repo/testing/DataAgent.Test/synthetic.csv" | ConvertTo-Csv | Select-Object -Skip 1 | ForEach-Object { $_.Replace('"', '') } | Set-Content $expected
+Assert ((Get-FileHash "$root/headerless/output.csv").Hash -eq (Get-FileHash $expected).Hash) 'headerless legacy quote stripping'
+$cfg = Config 'dated'; $cfg.file_format = '{0:yyyyMMdd}-feed.csv'
+$null = Run 'dated' $cfg
+Assert (Test-Path "$root/dated/$((Get-Date).ToString('yyyyMMdd'))-feed.csv") 'legacy file_format naming'
+
+$cfg = Config 'empty'; 'id,name' | Set-Content "$root/empty-input.csv"
+$cfg.src.args.LiteralPath = "$root/empty-input.csv"
+'param($Data,$Options); throw "destination must not run"' | Set-Content "$root/empty/send.ps1"
+$cfg.dst = @{ adapter = './send.ps1'; args = @{} }
+$log = Run 'empty' $cfg
+Assert (!(Test-Path "$root/empty/output.csv") -and @($log | Where-Object { $_ -match 'No data available$' }).Count -eq 1) 'empty source logs and sends nothing'
+$cfg = Config 'preview'; $cfg.src.adapter = 'not-installed'
+'keep' | Set-Content "$root/preview/old.csv"
+(Get-Item "$root/preview/old.csv").LastWriteTime = (Get-Date).AddDays(-20)
+$null = Invoke-DataAgent $cfg -WorkingDirectory "$root/preview" -WhatIf
+Assert (Test-Path "$root/preview/old.csv") 'top-level WhatIf skips imports and cleanup'
+
+Module SqlServer @'
+$script:seen = $null
 function Invoke-Sqlcmd {
-    param($ConnectionString, $InputFile, $Query, $OutputAs, $QueryTimeout)
-    if ($ConnectionString -ne 'test-only') { throw 'unexpected connection' }
-    if ($InputFile -and !(Test-Path -LiteralPath $InputFile)) { throw 'input not resolved' }
-    $table = [Data.DataTable]::new()
-    $null = $table.Columns.Add('B'); $null = $table.Columns.Add('A')
-    $null = $table.Rows.Add('comma,value', 'quote"value')
-    ,$table
+    param($ConnectionString, $InputFile, $QueryTimeout, $OutputAs, $Query)
+    $script:seen = $PSBoundParameters
+    if ($Query -eq 'fail') { throw 'source failed' }
+    if ($ConnectionString -ne 'synthetic connection') { throw 'connection not forwarded' }
+    Import-Csv -LiteralPath $InputFile
 }
 '@
-Import-Module DataAgent -RequiredVersion 0.4.0 -Force
-Import-Module DataAgent.Test -RequiredVersion 0.4.0 -Force
-Import-Module DataAgent.Mail -RequiredVersion 0.4.0 -Force
-& (Get-Module DataAgent.Mail) {
+$cfg = Config 'sql'
+Copy-Item "$repo/testing/DataAgent.Test/synthetic.csv" "$root/sql/rows.csv"
+$cfg.src = @{ adapter = 'sql'; args = @{ ConnectionString = 'synthetic connection'; InputFile = 'rows.csv'; QueryTimeout = 37; OutputAs = 'DataTables' } }
+$cfg.purgefiles = '*.log'
+$null = Run 'sql' $cfg
+$seen = & (Get-Module -All SqlServer) { $script:seen }
+Assert ($seen.ConnectionString -eq 'synthetic connection' -and $seen.InputFile -eq 'rows.csv' -and $seen.QueryTimeout -eq 37) 'SQL arguments and relative caller path pass through'
+$cfg.src.args.Query = 'fail'
+Refuses { Run 'sql' $cfg } 'source failed'
+Assert ((Get-Location).Path -eq $before) 'location restored after failure'
+$null = New-Item -ItemType Directory "$root/tee-failure"
+Copy-Item "$repo/examples/job.ps1" "$root/tee-failure/job.ps1"
+@{ src = @{ adapter='sql'; args=@{Query='fail'} }; fmt=@{adapter='csv';args=@{Path='output.csv'}};dst=@{adapter='email';args=@{cfg=@{msgraph=@{}}}} } |
+    ConvertTo-Json -Depth 8 | Set-Content "$root/tee-failure/settings.json"
+$PSNativeCommandUseErrorActionPreference = $false
+$console = & (Get-Process -Id $PID).Path -NoProfile -File "$root/tee-failure/job.ps1" 2>&1
+Assert ($LASTEXITCODE -eq 1) 'example job reports terminating failure to scheduler'
+$errorLog = Get-Content (Join-Path "$root/tee-failure" ('{0:yyyyMMdd}.log' -f (Get-Date))) -Raw
+Assert ($errorLog -match 'source failed') 'example tee records terminating error as well as phases'
+$global:LASTEXITCODE = 0
+
+# Unchanged converter, selected DataTable rows, no adapter-specific public API.
+$cfg = Config 'custom'
+@'
+param($Data,$Options)
+$dt = [Data.DataTable]::new()
+$null = $dt.Columns.Add('id',[int]); $null = $dt.Columns.Add('text',[string])
+$null = $dt.Rows.Add(12,'keep'); $null = $dt.Rows.Add(99,'excluded')
+$dt.Rows[0]
+'@ | Set-Content "$root/custom/src.ps1"
+@'
+function ConvertTo-Custom([Data.DataTable]$dt) { foreach($row in $dt.Rows) { '{0}|{1}' -f $row.id,$row.text } }
+Export-ModuleMember -Function ConvertTo-Custom
+'@ | Set-Content "$root/custom/ConvertTo-Custom.psm1"
+$hash = (Get-FileHash "$root/custom/ConvertTo-Custom.psm1").Hash
+$cfg.src = @{ adapter = './src.ps1'; args = @{} }
+$cfg.fmt = @{ adapter = 'custom'; args = @{ Module = './ConvertTo-Custom.psm1'; Path = 'output.txt' } }
+$null = Run 'custom' $cfg
+Assert ((Get-Content "$root/custom/output.txt" -Raw).Trim() -eq '12|keep') 'custom receives selected rows as DataTable'
+Assert ((Get-FileHash "$root/custom/ConvertTo-Custom.psm1").Hash -eq $hash) 'converter untouched'
+$cfg = Config 'xlsx'
+$cfg.fmt = @{ adapter = 'xlsx'; args = @{ Path = 'output.xlsx'; WorksheetName = 'Rows'; NoNumberConversion = @('*'); TableStyle = 'Medium6' } }
+$null = Run 'xlsx' $cfg
+Import-Csv "$repo/testing/DataAgent.Test/synthetic.csv" | Export-Excel "$root/native.xlsx" -WorksheetName Rows -NoNumberConversion '*' -TableStyle Medium6
+$actual = Import-Excel "$root/xlsx/output.xlsx" | ConvertTo-Json -Compress
+$native = Import-Excel "$root/native.xlsx" | ConvertTo-Json -Compress
+Assert ($actual -eq $native) 'XLSX native cell semantics including newline normalization'
+
+# The real email helper runs; only its HTTP boundary is replaced in this process.
+Import-Module Send-FileViaEmail -RequiredVersion 2.0.0.0
+& (Get-Module Send-FileViaEmail) {
     $script:messages = [Collections.Generic.List[object]]::new()
-    $script:requests = 0
-    $script:failMail = $false
     function script:Invoke-RestMethod {
-        [CmdletBinding()]
-        param($Uri, $Method, $Body, $Headers, $ContentType)
-        $script:requests++
-        if ($Uri -like 'https://login.microsoftonline.com/*') {
-            if ($Body.client_secret -ne 'test-only') { throw 'unexpected secret' }
-            return @{ access_token = 'test-only' }
+        param($URI,$Method,$Body,$Headers,$ContentType)
+        if ($URI -like 'https://login.microsoftonline.com/*') {
+            if ($Body.client_secret -ne 'synthetic secret') { throw 'secret not forwarded' }
+            return @{ access_token = 'synthetic token' }
         }
-        if ($Uri -notlike 'https://graph.microsoft.com/v1.0/users/*/sendMail' -or $Headers.Authorization -ne 'Bearer test-only') { throw 'unexpected request' }
-        if ($script:failMail) { throw 'test-only provider detail must not escape' }
-        $script:messages.Add(([Text.Encoding]::UTF8.GetString($Body) | ConvertFrom-Json -AsHashtable))
+        if ($URI -notlike 'https://graph.microsoft.com/v1.0/users/*/sendMail') { throw 'unexpected endpoint' }
+        $script:messages.Add(($Body | ConvertFrom-Json -AsHashtable))
     }
 }
-$coreHash = (Get-FileHash "$repo/DataAgent/DataAgent.psm1").Hash
-$receipt = Test-DataAgent
-Assert ($receipt.status -eq 'completed' -and $receipt.rows -eq 5) 'test module runs real runner'
-Assert ($receipt.artifacts.Count -eq 1 -and $receipt.deliveries[0].outcome.state -eq 'recorded') 'artifact and outcome lists'
-Import-Csv "$repo/testing/DataAgent.Test/synthetic.csv" | Export-Csv "$root/expected.csv" -NoTypeInformation
-Assert ((Get-FileHash "$root/expected.csv").Hash -eq (Get-FileHash $receipt.artifacts[0].path).Hash) 'CSV byte parity including quotes and multiline fields'
-$cfg = Config 'csv-source'
-Copy-Item "$repo/testing/DataAgent.Test/synthetic.csv" "$root/csv-source/input.csv"
-$cfg.source = @{ module = 'DataAgent.Csv'; version = '0.4.0'; command = 'Import-DataAgentCsv'; options = @{ path = 'input.csv' } }
-$r = Run 'csv-source' $cfg
-Assert ($r.rows -eq 5 -and (Get-FileHash $r.artifacts[0].path).Hash -eq (Get-FileHash "$root/expected.csv").Hash) 'CSV source resolves relative to config'
-$cfg.source.options.path = 'output/test.csv'
-Refuses { Run 'csv-source' $cfg } 'input must be outside'
-$cfg = Config 'escape'; $cfg.transform.options.file_format = '../outside.csv'
-Refuses { Run 'escape' $cfg } 'Invalid CSV filename'
-$cfg = Config 'idle'; $cfg.source.options = @{ empty = $true }
-$r = Run 'idle' $cfg
-Assert ($r.status -eq 'idle' -and !$r.artifacts.Count -and !$r.deliveries.Count) 'idle skips remaining adapters'
-$cfg = Config 'preview'; $cfg.source.module = 'ModuleThatDoesNotExist'
-$null = Run 'preview' $cfg -WhatIf
-Assert (!(Get-ChildItem "$root/preview/output")) 'WhatIf writes nothing and imports nothing'
-$cfg = Config 'export'; $cfg.Remove('destination')
-$r = Run 'export' $cfg
-Assert ($r.status -eq 'completed' -and !$r.deliveries.Count) 'omit destination to export only'
-$hash = (Get-FileHash $r.artifacts[0].path).Hash
-(Get-Item $r.artifacts[0].path).LastWriteTime = (Get-Date).AddDays(-30)
-Refuses { Run 'export' $cfg } 'output exists'
-Assert ((Get-FileHash $r.artifacts[0].path).Hash -eq $hash) 'cleanup cannot erase colliding output'
-Assert (@(Get-DataAgentReceipt -SettingsPath "$root/export/settings.json" | Where-Object status -eq error).Count -eq 1) 'error receipt persisted'
-$cfg.transform.options.overwrite = $true
-'old target' | Set-Content "$root/export/output/test.csv"
-$r = Run 'export' $cfg
-Assert ((Get-FileHash $r.artifacts[0].path).Hash -eq (Get-FileHash "$root/expected.csv").Hash) 'explicit overwrite replaces a fixed target with complete CSV'
-$cfg.transform.options.overwrite = 'false'
-Refuses { Run 'export' $cfg } 'overwrite must be a boolean'
-$cfg = Config 'move-failure'; $cfg.transform.options.overwrite = $true
-$null = New-Item -ItemType Directory "$root/move-failure/output/test.csv"
-'keep' | Set-Content "$root/move-failure/output/test.csv/sentinel"
-Refuses { Run 'move-failure' $cfg } '(denied|exists|directory)'
-Assert ((Get-Content "$root/move-failure/output/test.csv/sentinel") -eq 'keep' -and @(Get-ChildItem "$root/move-failure/output" -File | Where-Object Extension -ne '.log').Count -eq 0) 'failed replacement preserves target and removes staging file'
-$cfg = Config 'cleanup'
-'old' | Set-Content "$root/cleanup/output/old.csv"
-'keep' | Set-Content "$root/cleanup/output/unrelated.txt"
-(Get-Item "$root/cleanup/output/old.csv").LastWriteTime = (Get-Date).AddDays(-30)
-$r = Run 'cleanup' $cfg
-Assert (!(Test-Path "$root/cleanup/output/old.csv") -and (Test-Path "$root/cleanup/output/unrelated.txt") -and (Test-Path $r.artifacts[0].path)) 'scoped output retention'
-$state = (Get-ChildItem "$root/state" -Recurse -Filter "$($r.runId).receipt.json").DirectoryName
-$owned = "$state/$([guid]::NewGuid().ToString('N')).receipt.json"
-'{}' | Set-Content $owned; '{}' | Set-Content "$state/unrelated.json"
-(Get-Item $owned).LastWriteTime = (Get-Date).AddDays(-30)
-$cfg.source.options = @{ empty = $true }; $null = Run 'cleanup' $cfg
-Assert (!(Test-Path $owned) -and (Test-Path "$state/unrelated.json")) 'scoped receipt retention'
-$cfg = Config 'failure'; $cfg.destination.options = @{ fail = $true }
-$location = (Get-Location).Path
-Refuses { Run 'failure' $cfg } 'synthetic destination failure'
-$r = @(Get-DataAgentReceipt -SettingsPath "$root/failure/settings.json")[-1]
-Assert ($r.status -eq 'error' -and $r.adapter -eq 'DataAgent.Test\Write-DataAgentTestReceipt' -and !$r.deliveries.Count) 'failure names command without claiming delivery'
-Assert ((Get-Location).Path -eq $location) 'location restored'
-$cfg = Config 'sql-mail'
-'select 1' | Set-Content "$root/sql-mail/input.sql"
-$cfg.source = @{ module = 'DataAgent.Sql'; version = '0.4.0'; command = 'Invoke-DataAgentSql'; options = @{ InputFile = 'input.sql'; OutputAs = 'DataTables' } }
-$cfg.destination = @{ module = 'DataAgent.Mail'; version = '0.4.0'; command = 'Send-DataAgentMail'; options = @{ mail = @{ from = 'sender@example.invalid'; to = @('example@example.invalid') }; msgraph = @{ tenant_id = '00000000-0000-0000-0000-000000000001'; client_id = '00000000-0000-0000-0000-000000000002' } } }
-$env:CONNECTION_STRING = 'test-only'; $env:CLIENT_SECRET = 'test-only'
-$r = Run 'sql-mail' $cfg
-Assert ($r.rows -eq 1 -and $r.deliveries[0].outcome.state -eq 'submitted') 'DataTable rows and mail submission'
-Assert ((Get-Content $r.artifacts[0].path -First 1) -eq '"B","A"') 'DataTable column order'
-$cfg.source.options.ConnectionString = 'not-allowed'
-Refuses { Run 'sql-mail' $cfg } 'ConnectionString'
-$cfg.source.options.Remove('ConnectionString'); $env:CONNECTION_STRING = ''
-Refuses { Run 'sql-mail' $cfg } 'CONNECTION_STRING'
-$env:CLIENT_SECRET = ''; $env:CONNECTION_STRING = ''
+$cfg = Config 'email'
+$cfg.dst = @{ adapter = 'email'; args = @{ cfg = @{ msgraph = @{ tenant_id = 'example'; client_id = 'example'; client_secret = 'synthetic secret' }; mail = @{ from = 'from@example.invalid'; to = @('to@example.invalid'); subject = 'literal {subject}' } } } }
+$log = Run 'email' $cfg
+$messages = @(& (Get-Module Send-FileViaEmail) { $script:messages.ToArray() })
+Assert ($messages.Count -eq 1 -and $messages[0].message.subject -eq 'literal {subject}') 'existing email helper gets caller config'
+Assert ($messages[0].message.attachments[0].contentBytes -eq [Convert]::ToBase64String([IO.File]::ReadAllBytes("$root/email/output.csv"))) 'existing helper attachment bytes'
+Assert (($log -join "`n") -notmatch 'synthetic secret|synthetic connection') 'runner does not echo config'
 
-# An independently installed module adds formats/destinations with no core edits.
-Module OutsideAdapter 1.0.0 @'
-function Get-Outside($Data, $Options, $Context) { [pscustomobject]@{ id = 1 }; [pscustomobject]@{ id = 2 } }
-function Export-Outside($Data, $Options, $Context) {
-    foreach ($name in @('first.json', 'second.json')) {
-        $path = Join-Path $Context.directory $name
-        $Data | ConvertTo-Json | Set-Content -LiteralPath $path
-        Get-Item -LiteralPath $path
-    }
-}
-function Send-Outside($Data, $Options, $Context) {
-    if ($Options.fail) { throw 'second destination failed' }
-    foreach ($file in $Data) { @{ state = 'confirmed'; acknowledgment = 'test-only'; path = $file.FullName } }
-}
-function Send-NoAck($Data, $Options, $Context) { @{ state = 'confirmed' } }
-function Export-Bad($Data, $Options, $Context) { 'not a file' }
-'@
-$cfg = Config 'extension'; $cfg.transform = @{ module = 'OutsideAdapter'; version = '1.0.0'; command = 'Export-Outside' }
-$cfg.source = @{ module = 'OutsideAdapter'; version = '1.0.0'; command = 'Get-Outside' }
-$dest = @{ module = 'OutsideAdapter'; version = '1.0.0'; command = 'Send-Outside' }
-$cfg.destination = @($dest, $dest)
-$r = Run 'extension' $cfg
-Assert ($r.rows -eq 2 -and $r.artifacts.Count -eq 2 -and $r.deliveries.Count -eq 4) 'external source and formatter, two files, two destinations'
-Assert ((Get-FileHash "$repo/DataAgent/DataAgent.psm1").Hash -eq $coreHash) 'extension leaves core bytes unchanged'
-$cfg = Config 'partial'; $cfg.transform = @{ module = 'OutsideAdapter'; version = '1.0.0'; command = 'Export-Outside' }
-$cfg.destination = @($dest, @{ module = 'OutsideAdapter'; version = '1.0.0'; command = 'Send-Outside'; options = @{ fail = $true } })
-Refuses { Run 'partial' $cfg } 'second destination failed'
-$r = @(Get-DataAgentReceipt -SettingsPath "$root/partial/settings.json")[-1]
-Assert ($r.status -eq 'error' -and $r.deliveries.Count -eq 2) 'prior destination outcomes survive later failure'
-$cfg = Config 'no-ack'; $cfg.destination = @{ module = 'OutsideAdapter'; version = '1.0.0'; command = 'Send-NoAck' }
-Refuses { Run 'no-ack' $cfg } 'confirmed requires acknowledgment'
-$cfg = Config 'bad-file'; $cfg.transform = @{ module = 'OutsideAdapter'; version = '1.0.0'; command = 'Export-Bad' }
-Refuses { Run 'bad-file' $cfg } 'nonempty regular FileInfo'
-$cfg = Config 'missing-export'; $cfg.source.command = 'NotExported'
-Refuses { Run 'missing-export' $cfg } 'Adapter not exported'
+$cfg = Config 'extension'
+@'
+param($Data,$Options)
+foreach($name in 'first.txt','second.txt') { 'example' | Set-Content $name; Get-Item $name }
+'@ | Set-Content "$root/extension/fmt.ps1"
+'param($Data,$Options); @($Data.Name) -join "," | Add-Content $Options.Path' | Set-Content "$root/extension/dst.ps1"
+$cfg.fmt = @{ adapter = './fmt.ps1'; args = @{} }
+$cfg.dst = @(@{ adapter = './dst.ps1'; args = @{ Path = 'one.txt' } }, @{ adapter = './dst.ps1'; args = @{ Path = 'two.txt' } })
+$null = Run 'extension' $cfg
+Assert ((Get-Content "$root/extension/one.txt") -eq 'first.txt,second.txt' -and (Get-Content "$root/extension/two.txt") -eq 'first.txt,second.txt') 'external formatter and destinations without core edit'
+Assert ((Get-FileHash "$repo/DataAgent/DataAgent.psm1").Hash -eq $core) 'core unchanged by extensions'
+$logPath = Join-Path "$root/extension" ('{0:yyyyMMdd}.log' -f (Get-Date))
+& { Invoke-DataAgent $cfg -WorkingDirectory "$root/extension" } *>&1 | Tee-Object -Append $logPath | Out-Null
+Assert ((Get-Content $logPath -Raw) -match '\tEnd') 'caller tee owns daily log'
 
-. "$PSScriptRoot/adapters.ps1"
+. "$PSScriptRoot/transfers.ps1"
 
-$packages = @("$repo/DataAgent") + @(Get-ChildItem "$repo/adapters", "$repo/testing" -Directory).FullName
-foreach ($package in $packages) {
+foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
     $name = Split-Path $package -Leaf
-    $manifest = Test-ModuleManifest "$package/$name.psd1"
-    Assert ($manifest.Version -eq '0.4.0') "$name manifest"
-    foreach ($command in $manifest.ExportedFunctions.Keys) { Assert ($null -ne (Get-Verb ($command -split '-')[0])) "$command approved verb" }
-    $staged = New-Item -ItemType Directory "$root/staged/$name/0.4.0" -Force
-    foreach ($file in $manifest.FileList) { Copy-Item $file $staged }
-    Assert (Test-Path "$staged/$name.psm1") "$name package"
+    $manifest = Test-ModuleManifest "$repo/$package/$name.psd1"
+    foreach ($file in $manifest.FileList) { Assert (Test-Path $file) "package includes $file" }
+    $target = New-Item -ItemType Directory "$root/staged/$name" -Force
+    Copy-Item "$repo/$package/*" $target.FullName -Recurse
 }
-$env:PSModulePath = (@("$root/staged", "$root/modules", "$PSHOME/Modules") -join [IO.Path]::PathSeparator)
-Remove-Module DataAgent* -Force
+Remove-Module DataAgent -Force
+$env:PSModulePath = (@("$root/staged", $priorModules) -join [IO.Path]::PathSeparator)
 Import-Module DataAgent.Test -RequiredVersion 0.4.0
-$r = Test-DataAgent
-Assert ($r.rows -eq 5 -and $r.status -eq 'completed') 'staged packages run without checkout-only files'
-"PASS: $script:checks checks; evidence: $root"
+$result = @(Test-DataAgent)
+Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
+$env:PSModulePath = $priorModules
+"PASS: $checks checks; evidence: $root"

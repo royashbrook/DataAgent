@@ -1,19 +1,16 @@
 {
   "keepdays": 10,
   "purgefiles": "*.log,*.csv",
-  "source": {
-    "module": "DataAgent.Sql", "version": "0.4.0", "command": "Invoke-DataAgentSql",
-    "options": { "Query": "SELECT 1 AS Example", "OutputAs": "DataTables", "QueryTimeout": 1800 }
-  },
-  "transform": {
-    "module": "DataAgent.Csv", "version": "0.4.0", "command": "Export-DataAgentCsv",
-    "options": { "file_format": "{0:yyyyMMddHHmmss}-feed.csv" }
-  },
-  "destination": {
-    "module": "DataAgent.Mail", "version": "0.4.0", "command": "Send-DataAgentMail",
-    "options": {
-      "mail": { "from": "sender@example.invalid", "to": ["recipient@example.invalid"], "subject": "Example feed" },
-      "msgraph": { "tenant_id": "TENANT_GUID", "client_id": "APP_CLIENT_GUID" }
+  "file_format": "{0:yyyyMMddHHmmss}-feed.csv",
+  "src": { "adapter": "sql", "args": { "InputFile": "get-data.sql", "OutputAs": "DataTables", "QueryTimeout": 1800 } },
+  "fmt": { "adapter": "csv", "args": {} },
+  "dst": {
+    "adapter": "email",
+    "args": {
+      "cfg": {
+        "mail": { "from": "sender@example.invalid", "to": ["recipient@example.invalid"], "subject": "Example feed" },
+        "msgraph": { "tenant_id": "TENANT_GUID", "client_id": "APP_CLIENT_GUID" }
+      }
     }
   }
 }
