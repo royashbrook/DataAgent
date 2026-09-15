@@ -1,0 +1,7 @@
+"Id","Description","Quantity"
+"1","ordinary row","12"
+"2","embedded, comma","0"
+"3","quoted ""word""","3"
+"4","line one
+line two","4"
+"5","",""

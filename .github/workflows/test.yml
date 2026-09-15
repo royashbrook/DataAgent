@@ -1,0 +1,24 @@
+name: Test
+on: [push, pull_request, workflow_call]
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install pinned core dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Import-PowerShellDataFile ./DataAgent/DataAgent.psd1
+          foreach ($dependency in $manifest.RequiredModules) {
+            Install-Module $dependency.ModuleName -RequiredVersion $dependency.RequiredVersion -Scope CurrentUser -Force -Repository PSGallery
+          }
+      - name: Offline acceptance
+        shell: pwsh
+        run: ./tests/acceptance.ps1

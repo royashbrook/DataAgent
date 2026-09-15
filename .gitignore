@@ -1,0 +1,5 @@
+*.receipt.json
+*.recording.json
+*.log
+state/
+.env
