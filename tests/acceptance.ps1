@@ -18,7 +18,11 @@ function Config($Name) {
     $null = New-Item -ItemType Directory "$root/$Name"
     @{ keepdays = 10; purgefiles = '*.csv,*.log'; src = @{ adapter = 'csv'; args = @{ LiteralPath = "$repo/testing/DataAgent.Test/synthetic.csv" } }; fmt = @{ adapter = 'csv'; args = @{ Path = 'output.csv' } } }
 }
-function Run($Name, $Config) { @(Invoke-DataAgent -Config $Config -WorkingDirectory "$root/$Name") }
+function Run($Name, $Config, [switch]$WhatIf) {
+    'param($Config,[switch]$WhatIf); Invoke-DataAgent $Config -WhatIf:$WhatIf' | Set-Content "$root/$Name/job.ps1"
+    Set-Location $before
+    @(& "$root/$Name/job.ps1" $Config -WhatIf:$WhatIf)
+}
 
 Import-Module "$repo/DataAgent/DataAgent.psd1" -Force
 Assert (@((Get-Module DataAgent).ExportedCommands.Keys) -ceq 'Invoke-DataAgent') 'one public production command'
@@ -38,7 +42,8 @@ Assert ((Get-FileHash "$root/csv/output.csv").Hash -eq (Get-FileHash $expected).
 (Get-Item "$root/csv/old.csv").LastWriteTime = (Get-Date).AddDays(-11)
 $null = Run 'csv' $cfg
 Assert (!(Test-Path "$root/csv/old.csv")) 'existing Clear-Files retention'
-Assert ((Get-Location).Path -eq $before) 'caller location restored'
+Assert ((Get-Location).Path -eq "$root/csv") 'module stays in calling script directory'
+Assert ((Get-Content "$root/csv/$((Get-Date).ToString('yyyyMMdd')).log" -Raw) -match '\tEnd') 'module appends daily job log'
 Assert (!(Test-Path "$root/csv/*.receipt.json")) 'no receipt artifacts'
 
 foreach ($mode in @('Always', 'AsNeeded', 'Never', 'Strip')) {
@@ -68,8 +73,15 @@ Assert (!(Test-Path "$root/empty/output.csv") -and @($log | Where-Object { $_ -m
 $cfg = Config 'preview'; $cfg.src.adapter = 'not-installed'
 'keep' | Set-Content "$root/preview/old.csv"
 (Get-Item "$root/preview/old.csv").LastWriteTime = (Get-Date).AddDays(-20)
-$null = Invoke-DataAgent $cfg -WorkingDirectory "$root/preview" -WhatIf
+$null = Run 'preview' $cfg -WhatIf
 Assert (Test-Path "$root/preview/old.csv") 'top-level WhatIf skips imports and cleanup'
+Assert ((Get-Location).Path -eq $before -and !(Test-Path "$root/preview/*.log")) 'WhatIf leaves directory and logs alone'
+
+$cfg = Config 'bad-adapter'; $cfg.src.adapter = 'missing'
+'expired' | Set-Content "$root/bad-adapter/old.csv"
+(Get-Item "$root/bad-adapter/old.csv").LastWriteTime = (Get-Date).AddDays(-11)
+Refuses { Run 'bad-adapter' $cfg } 'missing'
+Assert (!(Test-Path "$root/bad-adapter/old.csv")) 'cleanup precedes adapter loading'
 
 Module SqlServer @'
 $script:seen = $null
@@ -90,7 +102,7 @@ $seen = & (Get-Module -All SqlServer) { $script:seen }
 Assert ($seen.ConnectionString -eq 'synthetic connection' -and $seen.InputFile -eq 'rows.csv' -and $seen.QueryTimeout -eq 37) 'SQL arguments and relative caller path pass through'
 $cfg.src.args.Query = 'fail'
 Refuses { Run 'sql' $cfg } 'source failed'
-Assert ((Get-Location).Path -eq $before) 'location restored after failure'
+Assert ((Get-Location).Path -eq "$root/sql") 'job directory remains after failure'
 $null = New-Item -ItemType Directory "$root/tee-failure"
 Copy-Item "$repo/examples/job.ps1" "$root/tee-failure/job.ps1"
 @{ src = @{ adapter='sql'; args=@{Query='fail'} }; fmt=@{adapter='csv';args=@{Path='output.csv'}};dst=@{adapter='email';args=@{cfg=@{msgraph=@{}}}} } |
@@ -151,26 +163,24 @@ Assert ($messages.Count -eq 1 -and $messages[0].message.subject -eq 'literal {su
 Assert ($messages[0].message.attachments[0].contentBytes -eq [Convert]::ToBase64String([IO.File]::ReadAllBytes("$root/email/output.csv"))) 'existing helper attachment bytes'
 Assert ($messages[0].message.attachments[0].name -eq 'output.csv') 'existing helper attachment name stays a basename'
 Assert (($log -join "`n") -notmatch 'synthetic secret|synthetic connection') 'runner does not echo config'
-$null = New-Item -ItemType Directory "$root/email/nested"
-$cfg.fmt.args.Path = 'nested/report.csv'
-$null = Run 'email' $cfg
-$message = @(& (Get-Module Send-FileViaEmail) { $script:messages.ToArray() })[-1]
-Assert ($message.message.attachments[0].name -eq 'report.csv' -and $message.message.attachments[0].contentBytes -eq [Convert]::ToBase64String([IO.File]::ReadAllBytes("$root/email/nested/report.csv"))) 'nested artifact uses correct bytes without leaking directory in attachment name'
+Refuses { & "$repo/DataAgent/dst/email.ps1" -Data @('one.csv','two.csv') -Options $cfg.dst.args } 'one file'
+Assert (@(& (Get-Module Send-FileViaEmail) { $script:messages.ToArray() }).Count -eq 1) 'multiple files refused before any email'
+Assert ((Get-Location).Path -eq "$root/email") 'email does not change directory'
 
 $cfg = Config 'extension'
 @'
 param($Data,$Options)
-foreach($name in 'first.txt','second.txt') { 'example' | Set-Content $name; Get-Item $name }
+foreach($name in $Options.Path) { 'example' | Set-Content $name }
 '@ | Set-Content "$root/extension/fmt.ps1"
-'param($Data,$Options); @($Data.Name) -join "," | Add-Content $Options.Path' | Set-Content "$root/extension/dst.ps1"
-$cfg.fmt = @{ adapter = './fmt.ps1'; args = @{} }
+'param([string[]]$Data,$Options); $Data -join "," | Add-Content $Options.Path' | Set-Content "$root/extension/dst.ps1"
+$cfg.fmt = @{ adapter = './fmt.ps1'; args = @{ Path = @('first.txt','second.txt') } }
 $cfg.dst = @(@{ adapter = './dst.ps1'; args = @{ Path = 'one.txt' } }, @{ adapter = './dst.ps1'; args = @{ Path = 'two.txt' } })
 $null = Run 'extension' $cfg
 Assert ((Get-Content "$root/extension/one.txt") -eq 'first.txt,second.txt' -and (Get-Content "$root/extension/two.txt") -eq 'first.txt,second.txt') 'external formatter and destinations without core edit'
 Assert ((Get-FileHash "$repo/DataAgent/DataAgent.psm1").Hash -eq $core) 'core unchanged by extensions'
 $logPath = Join-Path "$root/extension" ('{0:yyyyMMdd}.log' -f (Get-Date))
-& { Invoke-DataAgent $cfg -WorkingDirectory "$root/extension" } *>&1 | Tee-Object -Append $logPath | Out-Null
-Assert ((Get-Content $logPath -Raw) -match '\tEnd') 'caller tee owns daily log'
+$null = Run 'extension' $cfg
+Assert (@(Get-Content $logPath | Where-Object { $_ -match '\tEnd$' }).Count -eq 2) 'built-in daily tee appends across runs'
 
 . "$PSScriptRoot/transfers.ps1"
 
@@ -187,4 +197,5 @@ Import-Module DataAgent.Test -RequiredVersion 0.4.0
 $result = @(Test-DataAgent)
 Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
 $env:PSModulePath = $priorModules
+Set-Location $before
 "PASS: $checks checks; evidence: $root"

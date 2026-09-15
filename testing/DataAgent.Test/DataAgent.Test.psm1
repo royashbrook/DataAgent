@@ -6,7 +6,8 @@ function Test-DataAgent {
         src = @{ adapter = 'csv'; args = @{ LiteralPath = (Resolve-Path -LiteralPath $FixturePath).ProviderPath } }
         fmt = @{ adapter = 'csv'; args = @{ Path = 'output.csv' } }
     }
-    Invoke-DataAgent -Config $cfg -WorkingDirectory $directory
+    'param($Config); Invoke-DataAgent $Config' | Set-Content "$directory/job.ps1"
+    & "$directory/job.ps1" $cfg
     Get-Item "$directory/output.csv"
 }
 Export-ModuleMember -Function Test-DataAgent

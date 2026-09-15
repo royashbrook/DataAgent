@@ -7,4 +7,3 @@ $columns = if ($Data[0] -is [Data.DataRow]) { $Data[0].Table.Columns.ColumnName 
 $lines = $Data | Select-Object $columns | ConvertTo-Csv @csv
 if ($strip) { $lines = $lines | ForEach-Object { $_.Replace('"', '') } }
 $lines | Set-Content -LiteralPath $path -Encoding $encoding
-Get-Item -LiteralPath $path

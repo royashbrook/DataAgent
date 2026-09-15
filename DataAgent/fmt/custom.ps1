@@ -13,4 +13,3 @@ if ($Data[0] -is [Data.DataRow]) {
     }
 }
 & $module.ExportedCommands['ConvertTo-Custom'] $table | Set-Content -LiteralPath $Options.Path -Encoding utf8NoBOM
-Get-Item -LiteralPath $Options.Path

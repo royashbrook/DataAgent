@@ -10,13 +10,13 @@
     CmdletsToExport = @()
     VariablesToExport = @()
     AliasesToExport = @()
-    FileList = @('DataAgent.psd1', 'DataAgent.psm1', 'LICENSE', 'src/sql.ps1', 'src/csv.ps1', 'fmt/csv.ps1', 'fmt/xlsx.ps1', 'fmt/custom.ps1', 'dst/email.ps1', 'dst/sftp.ps1', 'dst/ftp.ps1', 'dst/ftps.ps1', 'dst/ftp-common.ps1')
+    FileList = @('DataAgent.psd1', 'DataAgent.psm1', 'LICENSE', 'src/sql.ps1', 'src/csv.ps1', 'fmt/csv.ps1', 'fmt/xlsx.ps1', 'fmt/custom.ps1', 'dst/email.ps1', 'dst/sftp.ps1', 'dst/ftp.ps1', 'dst/ftps.ps1')
     PrivateData = @{
         PSData = @{
             Tags = @('ETL', 'Data', 'CSV', 'Automation', 'PSEdition_Core', 'Windows', 'Linux', 'MacOS')
             LicenseUri = 'https://github.com/royashbrook/DataAgent/blob/main/LICENSE'
             ProjectUri = 'https://github.com/royashbrook/DataAgent'
-            ReleaseNotes = 'Review candidate: internal src/fmt/dst adapters, existing helper delegation, caller-owned config and logs. Breaking config/API change from 0.3.0.'
+            ReleaseNotes = 'Review candidate: internal src/fmt/dst adapters, existing helpers, calling-script directory and daily log. Breaking config/API change from 0.3.0.'
         }
     }
 }
