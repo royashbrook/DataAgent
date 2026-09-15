@@ -20,7 +20,7 @@
             Tags = @('ETL', 'Data', 'CSV', 'Automation', 'PSEdition_Core', 'Windows', 'Linux', 'MacOS')
             LicenseUri = 'https://github.com/royashbrook/DataAgent/blob/main/LICENSE'
             ProjectUri = 'https://github.com/royashbrook/DataAgent'
-            ReleaseNotes = 'Initial public DataAgent release. Config-driven feeds, mock and dry-run modes, bounded receipts, and offline acceptance tests.'
+            ReleaseNotes = 'Initial public DataAgent release. Config-driven feeds, Mock and ExportOnly modes, WhatIf/Confirm, bounded receipts, and offline acceptance tests.'
         }
     }
 }
