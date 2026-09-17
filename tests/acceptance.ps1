@@ -90,6 +90,17 @@ function Invoke-Sqlcmd {
     $script:seen = $PSBoundParameters
     if ($Query -eq 'fail') { throw 'source failed' }
     if ($ConnectionString -ne 'synthetic connection') { throw 'connection not forwarded' }
+    if ($Query -match '^tables:([0-9,]+)$') {
+        $ds = [Data.DataSet]::new()
+        foreach ($count in $Matches[1].Split(',')) {
+            $table = [Data.DataTable]::new()
+            $null = $table.Columns.Add('id', [int]); $null = $table.Columns.Add('text', [string])
+            for ($i = 1; $i -le [int]$count; $i++) { $null = $table.Rows.Add($i, 'kept') }
+            $null = $ds.Tables.Add($table)
+        }
+        $ds.Tables
+        return
+    }
     Import-Csv -LiteralPath $InputFile
 }
 '@
@@ -100,6 +111,24 @@ $cfg.purgefiles = '*.log'
 $null = Run 'sql' $cfg
 $seen = & (Get-Module -All SqlServer) { $script:seen }
 Assert ($seen.ConnectionString -eq 'synthetic connection' -and $seen.InputFile -eq 'rows.csv' -and $seen.QueryTimeout -eq 37) 'SQL arguments and relative caller path pass through'
+foreach ($counts in '0', '1', '3', '0,0', '0,2,0,1') {
+    $name = "sql-tables-$counts"
+    $c = Config $name
+    $c.src = @{ adapter = 'sql'; args = @{ ConnectionString = 'synthetic connection'; Query = "tables:$counts"; OutputAs = 'DataTables' } }
+    $rows = @(foreach ($count in $counts.Split(',')) { for ($i = 1; $i -le [int]$count; $i++) { [pscustomobject]@{ id = $i; text = 'kept' } } })
+    if (!$rows.Count) {
+        'param($Data,$Options); throw "empty SQL must not deliver"' | Set-Content "$root/$name/send.ps1"
+        $c.dst = @{ adapter = './send.ps1'; args = @{} }
+    }
+    $messages = Run $name $c
+    if (!$rows.Count) {
+        Assert (!(Test-Path "$root/$name/output.csv")) "empty SQL tables $counts create no artifact"
+        Assert (@($messages | Where-Object { $_ -match 'No data available$' }).Count -eq 1) "empty SQL tables $counts use idle path"
+    } else {
+        $rows | Export-Csv $expected -NoTypeInformation
+        Assert ((Get-FileHash "$root/$name/output.csv").Hash -eq (Get-FileHash $expected).Hash) "SQL tables $counts preserve row bytes and order"
+    }
+}
 $cfg.src.args.Query = 'fail'
 Refuses { Run 'sql' $cfg } 'source failed'
 Assert ((Get-Location).Path -eq (Join-Path $root 'sql')) 'job directory remains after failure'
@@ -193,7 +222,7 @@ foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
 }
 Remove-Module DataAgent -Force
 $env:PSModulePath = (@("$root/staged", $priorModules) -join [IO.Path]::PathSeparator)
-Import-Module DataAgent.Test -RequiredVersion 0.4.0
+Import-Module DataAgent.Test -RequiredVersion 0.4.1
 $result = @(Test-DataAgent)
 Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
 $env:PSModulePath = $priorModules
