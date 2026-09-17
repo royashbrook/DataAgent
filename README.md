@@ -5,13 +5,13 @@ the repeated part of a feed job: get data, format it, send it. use the tools you
 **0.4.0 is a breaking change from 0.3.0.** migrate jobs to `Invoke-DataAgent -Config` and the `src` / `fmt` / `dst` contract below. `Invoke-DataAgentPipeline` and the old provider/receipt helpers are removed. installing this version does not migrate existing jobs.
 
 ```powershell
-Install-Module DataAgent -RequiredVersion 0.4.0 -Scope CurrentUser
+Install-Module DataAgent -RequiredVersion 0.4.1 -Scope CurrentUser
 ```
 
 ## the job
 
 ```powershell
-Import-Module DataAgent -RequiredVersion 0.4.0
+Import-Module DataAgent -RequiredVersion 0.4.1
 Invoke-DataAgent -Config $cfg
 ```
 
@@ -35,7 +35,7 @@ no records means `No data available` and no formatting or sending. the configure
 
 ### source
 
-`src/sql` forwards `args` to Invoke-Sqlcmd; `src/csv` forwards them to Import-Csv. relative paths resolve in the job directory. pass a connection string, integrated-auth settings, or other supported arguments directly; credentials need not come from a particular environment variable. keep secrets out of committed config and logs.
+`src/sql` forwards `args` to Invoke-Sqlcmd and emits rows from DataTable results; `src/csv` forwards them to Import-Csv. empty SQL tables produce no records, so the runner skips formatting and delivery. relative paths resolve in the job directory. pass a connection string, integrated-auth settings, or other supported arguments directly; credentials need not come from a particular environment variable. keep secrets out of committed config and logs.
 
 ### format
 

@@ -1,6 +1,6 @@
 @{
     RootModule = 'DataAgent.psm1'
-    ModuleVersion = '0.4.0'
+    ModuleVersion = '0.4.1'
     GUID = '32662c0b-0a5d-49ac-8c62-8f7ae05f79c0'
     Author = 'Roy Ashbrook'
     Copyright = '(c) 2026 Roy Ashbrook. MIT License.'
@@ -16,7 +16,7 @@
             Tags = @('ETL', 'Data', 'CSV', 'Automation', 'PSEdition_Core', 'Windows', 'Linux', 'MacOS')
             LicenseUri = 'https://github.com/royashbrook/DataAgent/blob/main/LICENSE'
             ProjectUri = 'https://github.com/royashbrook/DataAgent'
-            ReleaseNotes = 'Breaking change from 0.3.0: Invoke-DataAgent -Config replaces the pipeline/provider/receipt API. Internal src/fmt/dst adapters reuse existing helpers, with calling-script directory and daily log. Migrate consumers explicitly.'
+            ReleaseNotes = 'Fix empty SQL DataTable results being treated as records. SQL table results now produce rows, so zero rows skip formatting and delivery. No configuration or public API change from 0.4.0.'
         }
     }
 }
