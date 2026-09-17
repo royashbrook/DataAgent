@@ -1,26 +1,22 @@
 @{
     RootModule = 'DataAgent.psm1'
-    ModuleVersion = '0.3.0'
+    ModuleVersion = '0.4.0'
     GUID = '32662c0b-0a5d-49ac-8c62-8f7ae05f79c0'
     Author = 'Roy Ashbrook'
     Copyright = '(c) 2026 Roy Ashbrook. MIT License.'
-    Description = 'Extract, format, and deliver a file with a recorded run outcome.'
+    Description = 'Run a configured source, formatter, and destination using existing PowerShell tools.'
     PowerShellVersion = '7.4'
-    RequiredModules = @(
-        @{ ModuleName = 'Add-PrefixForLogging'; RequiredVersion = '1.0.0.2' }
-        @{ ModuleName = 'Clear-Files'; RequiredVersion = '1.0.0.0' }
-    )
-    FunctionsToExport = @('Invoke-DataAgent', 'Get-DataAgentReceipt', 'Invoke-DataAgentPipeline', 'Invoke-DataAgentSql', 'Export-DataAgentCsv', 'Send-DataAgentMail', 'Write-DataAgentRecording')
+    FunctionsToExport = @('Invoke-DataAgent')
     CmdletsToExport = @()
     VariablesToExport = @()
     AliasesToExport = @()
-    FileList = @('DataAgent.psd1', 'DataAgent.psm1', 'synthetic.csv', 'LICENSE')
+    FileList = @('DataAgent.psd1', 'DataAgent.psm1', 'LICENSE', 'src/sql.ps1', 'src/csv.ps1', 'fmt/csv.ps1', 'fmt/xlsx.ps1', 'fmt/custom.ps1', 'dst/email.ps1', 'dst/sftp.ps1', 'dst/ftp.ps1', 'dst/ftps.ps1')
     PrivateData = @{
         PSData = @{
             Tags = @('ETL', 'Data', 'CSV', 'Automation', 'PSEdition_Core', 'Windows', 'Linux', 'MacOS')
             LicenseUri = 'https://github.com/royashbrook/DataAgent/blob/main/LICENSE'
             ProjectUri = 'https://github.com/royashbrook/DataAgent'
-            ReleaseNotes = 'Initial public DataAgent release. Config-driven feeds, Mock and ExportOnly modes, WhatIf/Confirm, bounded receipts, and offline acceptance tests.'
+            ReleaseNotes = 'Breaking change from 0.3.0: Invoke-DataAgent -Config replaces the pipeline/provider/receipt API. Internal src/fmt/dst adapters reuse existing helpers, with calling-script directory and daily log. Migrate consumers explicitly.'
         }
     }
 }

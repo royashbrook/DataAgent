@@ -1,177 +1,82 @@
 # DataAgent
 
-Get data. Format a file. Use data. Record what happened.
+the repeated part of a feed job: get data, format it, send it. use the tools you already use.
 
-DataAgent is a PowerShell module for scheduled file feeds. A feed repository needs
-only settings and a tiny job; the module owns dispatch, logging, cleanup, and run
-receipts. No service, AI model, or agent framework is required.
-
-## Try it without contacting a database or sending mail
-
-Requires PowerShell 7.4 or later.
+**0.4.0 is a breaking change from 0.3.0.** migrate jobs to `Invoke-DataAgent -Config` and the `src` / `fmt` / `dst` contract below. `Invoke-DataAgentPipeline` and the old provider/receipt helpers are removed. installing this version does not migrate existing jobs.
 
 ```powershell
-Install-Module DataAgent -RequiredVersion 0.3.0 -Scope CurrentUser
+Install-Module DataAgent -RequiredVersion 0.4.0 -Scope CurrentUser
 ```
 
-Copy [examples/settings.json](examples/settings.json) and
-[examples/job.ps1](examples/job.ps1) into a new directory. The entire job is:
+## the job
 
 ```powershell
-param([ValidateSet('Mock','ExportOnly','Live')][string]$Mode='Mock')
-Import-Module DataAgent -RequiredVersion 0.3.0 -ErrorAction Stop
-Invoke-DataAgent -SettingsPath "$PSScriptRoot/settings.json" -Mode $Mode
+Import-Module DataAgent -RequiredVersion 0.4.0
+Invoke-DataAgent -Config $cfg
 ```
 
-Run `./job.ps1`. Mock is the default: five packaged synthetic rows, a temporary
-output directory, and a local recording instead of external delivery. The command
-returns one finalized receipt object. Logs use the information stream.
+put these calls in the job's `.ps1`. `$cfg` is a hashtable supplied by that script. load JSON if useful, then add runtime values such as credentials. DataAgent assumes no environment variable names and does not print configuration. [settings.json](examples/settings.json) and [job.ps1](examples/job.ps1) show SQL + CSV + email.
+
+the module sets location once to the calling script's folder, not its own folder or the shell's starting directory, and stays there, including on failure. this is deliberate job-runner behavior; direct interactive calls are not supported. it tees ordinary output and `l` messages to the screen and appends `yyyyMMdd.log` there. a terminating error is also recorded, then rethrown so `pwsh -File job.ps1` exits nonzero. no receipt directory, hash ledger, scheduler, or retry engine.
+
+`Invoke-DataAgent -Config $cfg -WhatIf` skips the entire run, including adapter imports and cleanup. only this public entrypoint advertises WhatIf. adapters are internal scripts, not independently exported commands or packages.
+
+## adapters
+
+each descriptor is `{ "adapter": "name", "args": { ... } }`. `src` and `fmt` take one descriptor; `dst` takes one or a list, or can be omitted to format only. every destination receives all generated files, in sequence; a failure stops the job. no conditional routing or best-effort branches are implied.
+
+| folder | adapters | existing operation |
+|---|---|---|
+| `src` | `sql`, `csv` | Invoke-Sqlcmd, Import-Csv |
+| `fmt` | `csv`, `xlsx`, `custom` | ConvertTo-Csv + Set-Content, Export-Excel, ConvertTo-Custom |
+| `dst` | `email`, `sftp`, `ftp`, `ftps` | Send-FileViaEmail, Posh-SSH, .NET FTP |
+
+no records means `No data available` and no formatting or sending. the configured filename is passed to the formatter and destination, not returned as a FileInfo object. built-ins use ordinary direct-write behavior, including overwrite, rather than staging or refusing existing output. a formatter that cannot produce its configured output should throw; missing files fail when the destination reads them. run in a dedicated job directory without overlapping workers, just like a standalone feed job.
+
+### source
+
+`src/sql` forwards `args` to Invoke-Sqlcmd; `src/csv` forwards them to Import-Csv. relative paths resolve in the job directory. pass a connection string, integrated-auth settings, or other supported arguments directly; credentials need not come from a particular environment variable. keep secrets out of committed config and logs.
+
+### format
+
+`file_format`, when provided, is formatted with the run's current date and supplied as `fmt.args.Path`. otherwise supply Path yourself.
+
+- `csv`: Path, optional Encoding (default utf8NoBOM), and ConvertTo-Csv arguments such as UseQuotes (Always/AsNeeded/Never), Delimiter, NoHeader. `StripQuotes: true` reproduces removing every double quote, including quotes in data. unquoted modes can be lossy with commas/newlines; use the feed's required format. source column order is retained.
+- `xlsx`: arguments pass through to Export-Excel, including Path, WorksheetName, AutoSize, and TableStyle. workbook behavior is the helper's, not a new overwrite policy. verify cells/layout, not ZIP hashes. AutoSize may need native support on non-Windows hosts.
+- `custom`: `args.Module` names the existing module exporting `ConvertTo-Custom($dt)`; `args.Path` is the output. the bridge passes a DataTable and writes returned text as UTF-8 without BOM. no converter rewrite required.
+
+### destination
+
+- `email`: one filename, one call to Send-FileViaEmail. `args` pass through (`cfg`, optional `contentType`); the adapter supplies `file`. multiple filenames throw before any email call, never fan out into separate messages. use a filename in the job folder: the existing helper uses that literal value as both the path and attachment name. no new multi-attachment/body API or client-side size policy. provider limits still apply.
+- `sftp`: `args.connect` passes to New-SFTPSession and `args.send` to Set-SFTPItem. supply Credential, ComputerName, Destination, and the host-key/overwrite policy you actually intend. the session closes even on failure. prefer verified trusted hosts; `Force` on connection bypasses host-key validation.
+- `ftp` / `ftps`: independent scripts, no shared dispatch or TLS toggle. args are `Uri` (remote directory, `ftp://host/path/`) and `Credential` (PSCredential or .NET NetworkCredential). FTPS enables explicit TLS on the FTP connection; implicit FTPS is not supported. plain FTP sends credentials and data unencrypted. both upload with normal replacement behavior.
 
 ```powershell
-$receipt = ./job.ps1
-$receipt | Select-Object status, rowCount, artifacts, deliveries
-Get-DataAgentReceipt -WorkingDirectory $PWD
-# Use your own synthetic input for a parity check:
-Invoke-DataAgent -SettingsPath ./settings.json -FixturePath ./my-fixture.csv
+$cfg.dst = @{
+    adapter = 'sftp'
+    args = @{
+        connect = @{ ComputerName = 'files.example.invalid'; Credential = $credential; ErrorOnUntrusted = $true }
+        send = @{ Destination = '/incoming'; Force = $true }
+    }
+}
 ```
 
-The packaged fixture is generic, not a sample of any particular production feed.
+### custom adapter
 
-## How it fits together
+instead of a built-in name, set `adapter` to a `.ps1` path (relative to the job directory or absolute). the runner maps src/fmt/dst to their script paths; no resolver helper or registry. every script receives `-Data` and `-Options`. sources return records. formatters write `Options.Path`; destinations receive those configured filename strings as Data. a custom formatter can accept a list of paths, but must write each one, and email still accepts only one. keep progress off the source's success stream. adapters must not change location: the log and job paths stay rooted in the calling script's folder. config selects executable code and is trusted like the job script itself.
 
-```text
-your scheduler → job.ps1 + settings.json → Invoke-DataAgent
-                                            │
-                   cleanup → get data → format file → use data
-                                │            │           │
-                            SQL / CSV       CSV      mail / recording
-                                            │
-                                artifact hash + run receipt
-```
+## dependencies and cleanup
 
-| Mode | Source | Delivery | Default output |
-| --- | --- | --- | --- |
-| Mock (default) | Packaged CSV or `-FixturePath` | Local mock recording | New temporary directory |
-| ExportOnly | Configured source, including real SQL | None | New temporary directory |
-| Live | Configured source | Configured destination | Settings directory |
+install only the helpers the job uses. the runner never installs anything. tested versions: Add-PrefixForLogging 1.0.0.2, Clear-Files 1.0.0.0, SqlServer 22.4.5.1, Send-FileViaEmail 2.0.0.0, ImportExcel 7.8.10, Posh-SSH 3.2.7. PowerShell 7.4+. pin these in the runner's provisioning, not in every adapter.
 
-**ExportOnly can read a real database.** Mock is the no-external-I/O rehearsal.
-SQL text is trusted configuration: read-only behavior is not enforced. A query
-with writes can change the database even in ExportOnly.
-All modes run retention in their output directory; choose a dedicated directory.
-`-WorkingDirectory` must exist. `-RunAt` controls the artifact name and log date,
-not the current-time retention cutoff.
+Add-PrefixForLogging is loaded first for `l`. when `purgefiles` is configured, Clear-Files is loaded and receives the config (`keepdays`, `purgefiles`) before adapter loading or querying. its deletion behavior is unchanged: give it a dedicated output directory and deliberate patterns. no additional cleanup/state policy is imposed.
 
-`Invoke-DataAgent -SettingsPath ./settings.json -Mode Live -WhatIf` previews the
-whole run without executing it: no source query, callbacks, cleanup, output,
-receipt, or send. `-Confirm` asks once before the run; approval covers its nested
-stages. The pipeline and each state-changing exported adapter also support these
-parameters when called directly. WhatIf returns no receipt, since nothing ran.
+## test and adoption
 
-## Configure a feed
+optional `DataAgent.Test` exports Test-DataAgent: a synthetic CSV input through the real runner and formatter, in a temporary directory. `-FixturePath` selects another synthetic fixture. no production mock mode.
 
-The `etl` object selects built-in adapters, never evaluated code:
+from a checkout, add the repo and `testing` directory to PSModulePath. install the helper versions listed in `.github/workflows/test.yml`, then run `pwsh -NoProfile -File tests/acceptance.ps1`. it uses real logging, cleanup, email formatting and XLSX helpers; SQL/SFTP/FTP/HTTP boundaries are replaced inside the test process. `bash tests/offline-macos.sh` additionally denies network access at the OS boundary. these are not live-provider tests.
 
-```json
-"etl": { "source": "sql", "format": "csv", "destination": "email" }
-```
+only Invoke-DataAgent is exported; config uses src/fmt/dst, adapters are bundled, and receipts are removed. earlier receipt files are left untouched. old Mode/Extract/Transform/Deliver calls must be rewritten for these adapters; optional synthetic tests live in DataAgent.Test. cache filtering, acknowledgment/retry policies, conditional routing, and multi-attachment/body email are not implemented. before adopting any feed, prove its output/layout, runner identity and dependencies, cleanup, and scoped provider behavior. nothing here changes a live feed.
 
-- Source: `sql`, using the `sql` arguments in settings, or `csv`, using
-  `"csv": { "path": "../inputs/source.csv" }` relative to the settings file.
-- Format: `csv`. Column order is preserved; PowerShell's native `Export-Csv`
-  handles quoting and escaping. Encoding is UTF-8 without BOM; newline follows
-  the host OS. Compare bytes on your intended runner before cutting over.
-- Destination: `email`, using `mail` and `msgraph` settings, or `recording`, which
-  always records a mock outcome locally and never sends anything.
-- `keepdays`: positive integer. `purgefiles`: comma-separated output patterns
-  passed to Clear-Files. `file_format`: one filename with a .NET date placeholder.
-
-CSV input must be outside the output directory so cleanup cannot remove it.
-Existing artifact names refuse overwrite or resend. The default timestamp has
-second precision: serialize runs and choose a naming pattern appropriate to the feed.
-
-### Optional live adapters
-
-The core installs pinned `Add-PrefixForLogging` 1.0.0.2 and `Clear-Files` 1.0.0.0.
-Install only the live adapters you use:
-
-```powershell
-Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser
-Install-Module Send-FileViaEmail -RequiredVersion 2.0.0.0 -Scope CurrentUser
-```
-
-Inject `CONNECTION_STRING` and `CLIENT_SECRET` through your scheduler's secret
-store into the process environment. Never put their values in settings or source
-control. The `sql` object may contain `Query` or a settings-relative `InputFile`;
-it must not contain `ConnectionString`. Keep `msgraph.client_secret` empty.
-The mail adapter uses the configured Microsoft Graph application and recipients.
-
-Review the config and provider permissions, rehearse on the intended runner, then
-explicitly select `./job.ps1 -Mode Live`. Installing the module schedules nothing.
-
-## Receipts, retention, and failure
-
-Receipts and mock recordings live under the user's LocalApplicationData/DataAgent
-directory, keyed by the resolved settings-directory path. Set the absolute
-`DATAAGENT_STATE_ROOT` environment variable to choose another root. They do not
-accumulate in the feed repository. Output artifacts and daily logs stay in the
-chosen output directory. Temporary mock/export-only output is not automatically
-removed by a later run in a different temporary directory.
-
-Receipts include a run ID, mode, row count, phase timestamps, artifact byte count
-and SHA-256, plus artifact/delivery arrays. Version 0.3 supports **one artifact and
-one destination per run**; the array schema is not a multi-output promise.
-
-- Empty input is `idle`: no artifact or delivery.
-- `submitted` means the adapter call returned, not that someone received a file.
-- `confirmed` requires an adapter acknowledgment. Mock IDs remain under
-  `mockEvidence`, never presented as real provider IDs.
-- Exceptions persist an error receipt and propagate to the caller. Unhandled
-  exceptions give a nonzero script exit.
-- An interrupted `delivery-attempted` run is ambiguous. Inspect it before retrying.
-  There is no automatic retry, resume, exactly-once delivery, or cross-run lock.
-
-Each run removes only owned expired receipts/recordings for its state directory,
-using `keepdays`. Output retention follows `purgefiles`. Protect local data with
-OS permissions: files and receipts are not encrypted, logs can contain errors
-from custom adapters, and receipts contain paths and delivery metadata.
-
-## Custom stages
-
-`Invoke-DataAgentPipeline` exposes `-Extract` (get data), `-Transform` (format), and
-`-Deliver` (use data) scriptblocks. Extract receives a context; Transform receives
-rows and context and must write `context.ArtifactPath`; Deliver receives context
-and returns one outcome dictionary. Its default mode is ExportOnly; Run/Mock require
-a delivery adapter. Custom scriptblocks are trusted code, not sandboxed plugins.
-
-The built-in helpers are `Invoke-DataAgentSql`, `Export-DataAgentCsv`,
-`Send-DataAgentMail`, and `Write-DataAgentRecording`. Their module-specific nouns
-avoid collisions with other modules' commands.
-
-Naming follows Microsoft's [approved verbs](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/approved-verbs-for-windows-powershell-commands):
-Invoke runs synchronously; Start would imply asynchronous work. SQL uses Invoke
-because it executes caller-supplied statements, not an enforced read-only query.
-State-changing commands implement [ShouldProcess](https://learn.microsoft.com/en-us/powershell/scripting/developer/cmdlet/creating-a-cmdlet-that-modifies-the-system)
-for WhatIf and Confirm. Mock and ExportOnly are execution modes, not substitutes for
-WhatIf.
-
-## Development and release checks
-
-```powershell
-pwsh -NoProfile -File tests/acceptance.ps1
-```
-
-Install the two pinned core dependencies first, or pass `-DependencyPath` pointing
-at a saved module directory. Tests use synthetic rows and local recording only,
-exercise a fresh-process consumer, and compare CSV bytes against native
-Export-Csv on the executing OS. CI runs on Linux, macOS, and Windows. On macOS,
-`bash tests/offline-macos.sh` additionally tests under a network-denying sandbox.
-
-`prepare.ps1` creates an optional offline bundle with pinned dependencies and a
-two-file consumer; run the bundle's `try.ps1` to smoke-test it. Normal users can
-install from the Gallery instead.
-
-This is an early release. Offline tests do not certify live SQL, email, or a
-production feed migration. Those need environment-specific validation.
-
-License: [MIT](LICENSE).
+MIT. see [LICENSE](LICENSE).

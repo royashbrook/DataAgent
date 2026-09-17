@@ -1,9 +1,16 @@
 {
-  "etl": { "source": "sql", "format": "csv", "destination": "email" },
   "keepdays": 10,
   "purgefiles": "*.log,*.csv",
   "file_format": "{0:yyyyMMddHHmmss}-feed.csv",
-  "sql": { "Query": "SELECT 1 AS Example", "OutputAs": "DataTables", "QueryTimeout": 1800 },
-  "mail": { "from": "sender@example.invalid", "to": ["recipient@example.invalid"], "subject": "Example feed" },
-  "msgraph": { "tenant_id": "TENANT_GUID", "client_id": "APP_CLIENT_GUID", "client_secret": "" }
+  "src": { "adapter": "sql", "args": { "InputFile": "get-data.sql", "OutputAs": "DataTables", "QueryTimeout": 1800 } },
+  "fmt": { "adapter": "csv", "args": {} },
+  "dst": {
+    "adapter": "email",
+    "args": {
+      "cfg": {
+        "mail": { "from": "sender@example.invalid", "to": ["recipient@example.invalid"], "subject": "Example feed" },
+        "msgraph": { "tenant_id": "TENANT_GUID", "client_id": "APP_CLIENT_GUID" }
+      }
+    }
+  }
 }

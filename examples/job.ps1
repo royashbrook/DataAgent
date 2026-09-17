@@ -1,3 +1,5 @@
-param([ValidateSet('Mock', 'ExportOnly', 'Live')][string] $Mode = 'Mock')
-Import-Module DataAgent -RequiredVersion 0.3.0 -ErrorAction Stop
-Invoke-DataAgent -SettingsPath "$PSScriptRoot/settings.json" -Mode $Mode
+Import-Module DataAgent -RequiredVersion 0.4.0 -ErrorAction Stop
+$cfg = Get-Content "$PSScriptRoot/settings.json" -Raw | ConvertFrom-Json -AsHashtable
+$cfg.src.args.ConnectionString = $env:CONNECTION_STRING
+$cfg.dst.args.cfg.msgraph.client_secret = $env:CLIENT_SECRET
+Invoke-DataAgent $cfg

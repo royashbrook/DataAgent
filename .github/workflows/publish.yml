@@ -19,11 +19,14 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $data = Import-PowerShellDataFile ./DataAgent/DataAgent.psd1
-          if ($env:RELEASE_TAG -cne "v$($data.ModuleVersion)") { throw 'Release tag must match the module version.' }
-          foreach ($dependency in $data.RequiredModules) {
-            Install-Module $dependency.ModuleName -RequiredVersion $dependency.RequiredVersion -Scope CurrentUser -Force -Repository PSGallery
+          $packages = @('./DataAgent', './testing/DataAgent.Test')
+          $env:PSModulePath = (@($PWD.Path, "$PWD/testing", $env:PSModulePath) -join [IO.Path]::PathSeparator)
+          foreach ($path in $packages) {
+            $name = Split-Path $path -Leaf
+            $data = Test-ModuleManifest "$path/$name.psd1"
+            if ($env:RELEASE_TAG -cne "v$($data.Version)") { throw "Release tag must match $name version." }
           }
-          $null = Test-ModuleManifest ./DataAgent/DataAgent.psd1
           if (!$env:PSGALLERY_API_KEY) { throw 'PSGALLERY_API_KEY is required.' }
-          Publish-Module -Path ./DataAgent -Repository PSGallery -NuGetApiKey $env:PSGALLERY_API_KEY
+          foreach ($path in $packages) {
+            Publish-Module -Path $path -Repository PSGallery -NuGetApiKey $env:PSGALLERY_API_KEY
+          }
