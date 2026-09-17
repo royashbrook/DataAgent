@@ -2,7 +2,11 @@
 
 the repeated part of a feed job: get data, format it, send it. use the tools you already use.
 
-**0.4.0 is an unmerged review candidate.** [0.3.0](https://github.com/royashbrook/DataAgent/tree/v0.3.0) remains the published version. no production migration is implied.
+**0.4.0 is a breaking change from 0.3.0.** migrate jobs to `Invoke-DataAgent -Config` and the `src` / `fmt` / `dst` contract below. `Invoke-DataAgentPipeline` and the old provider/receipt helpers are removed. installing this version does not migrate existing jobs.
+
+```powershell
+Install-Module DataAgent -RequiredVersion 0.4.0 -Scope CurrentUser
+```
 
 ## the job
 
@@ -73,6 +77,6 @@ optional `DataAgent.Test` exports Test-DataAgent: a synthetic CSV input through 
 
 from a checkout, add the repo and `testing` directory to PSModulePath. install the helper versions listed in `.github/workflows/test.yml`, then run `pwsh -NoProfile -File tests/acceptance.ps1`. it uses real logging, cleanup, email formatting and XLSX helpers; SQL/SFTP/FTP/HTTP boundaries are replaced inside the test process. `bash tests/offline-macos.sh` additionally denies network access at the OS boundary. these are not live-provider tests.
 
-this changes the candidate API again: only Invoke-DataAgent is exported; config uses src/fmt/dst, adapters are bundled, and receipts are removed. earlier receipt files are left untouched. cache filtering, acknowledgment/retry policies, conditional routing, and multi-attachment/body email are not implemented. before adopting any feed, prove its output/layout, runner identity and dependencies, cleanup, and scoped provider behavior. nothing here changes a live feed.
+only Invoke-DataAgent is exported; config uses src/fmt/dst, adapters are bundled, and receipts are removed. earlier receipt files are left untouched. old Mode/Extract/Transform/Deliver calls must be rewritten for these adapters; optional synthetic tests live in DataAgent.Test. cache filtering, acknowledgment/retry policies, conditional routing, and multi-attachment/body email are not implemented. before adopting any feed, prove its output/layout, runner identity and dependencies, cleanup, and scoped provider behavior. nothing here changes a live feed.
 
 MIT. see [LICENSE](LICENSE).

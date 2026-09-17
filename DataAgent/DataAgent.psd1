@@ -16,7 +16,7 @@
             Tags = @('ETL', 'Data', 'CSV', 'Automation', 'PSEdition_Core', 'Windows', 'Linux', 'MacOS')
             LicenseUri = 'https://github.com/royashbrook/DataAgent/blob/main/LICENSE'
             ProjectUri = 'https://github.com/royashbrook/DataAgent'
-            ReleaseNotes = 'Review candidate: internal src/fmt/dst adapters, existing helpers, calling-script directory and daily log. Breaking config/API change from 0.3.0.'
+            ReleaseNotes = 'Breaking change from 0.3.0: Invoke-DataAgent -Config replaces the pipeline/provider/receipt API. Internal src/fmt/dst adapters reuse existing helpers, with calling-script directory and daily log. Migrate consumers explicitly.'
         }
     }
 }
