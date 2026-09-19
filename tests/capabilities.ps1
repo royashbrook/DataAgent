@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $ModulePath = (Resolve-Path $ModulePath).Path
 $brief = Get-Content "$ModulePath/CAPABILITIES.md" -Raw
 $documented = @{}
-foreach ($line in $brief -split "`n") {
+foreach ($line in $brief -split '\r?\n') {
     if ($line -notmatch '^\| `(src|fmt|dst)/([^`]+)` \| (.+) \| (.+) \|$') { continue }
     $name = "$($Matches[1])/$($Matches[2])"
     if ($documented.ContainsKey($name)) { throw "duplicate adapter: $name" }

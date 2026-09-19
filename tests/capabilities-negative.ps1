@@ -1,6 +1,9 @@
 $ErrorActionPreference = 'Stop'
 $root = Join-Path ([IO.Path]::GetTempPath()) ('dataagent-brief-' + [guid]::NewGuid())
 Copy-Item "$PSScriptRoot/../DataAgent" $root -Recurse
+$brief = Get-Content "$root/CAPABILITIES.md" -Raw
+Set-Content "$root/CAPABILITIES.md" ($brief -replace '\r?\n', "`r`n") -NoNewline
+& "$PSScriptRoot/capabilities.ps1" -ModulePath $root
 function Refuses($message) {
     try { & "$PSScriptRoot/capabilities.ps1" -ModulePath $root }
     catch { if ($_.Exception.Message -like "*$message*") { return }; throw }
@@ -16,4 +19,4 @@ Set-Content "$root/fmt/csv.ps1" $csv
 $manifest = Get-Content "$root/DataAgent.psd1" -Raw
 $manifest.Replace("'CAPABILITIES.md', ", '') | Set-Content "$root/DataAgent.psd1"
 Refuses 'brief missing from package FileList'
-"PASS: rejects undocumented adapter, undocumented option and unpackaged brief"
+"PASS: accepts CRLF; rejects undocumented adapter, undocumented option and unpackaged brief"
