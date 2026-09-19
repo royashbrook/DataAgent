@@ -21,3 +21,9 @@ jobs:
       - name: Offline acceptance
         shell: pwsh
         run: ./tests/acceptance.ps1
+      - name: Capability brief and package
+        shell: pwsh
+        run: |
+          ./tests/capabilities.ps1
+          ./tests/capabilities-negative.ps1
+          ./tests/package.ps1
