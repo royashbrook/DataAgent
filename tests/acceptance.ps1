@@ -222,7 +222,7 @@ foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
 }
 Remove-Module DataAgent -Force
 $env:PSModulePath = (@("$root/staged", $priorModules) -join [IO.Path]::PathSeparator)
-Import-Module DataAgent.Test -RequiredVersion 0.4.1
+Import-Module DataAgent.Test -RequiredVersion 0.4.2
 $result = @(Test-DataAgent)
 Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
 $env:PSModulePath = $priorModules
