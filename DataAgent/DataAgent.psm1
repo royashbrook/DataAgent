@@ -1,10 +1,12 @@
 function Invoke-DataAgent {
     [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory)][hashtable] $Config)
-    if (!$PSCmdlet.ShouldProcess($MyInvocation.PSScriptRoot, 'Invoke-DataAgent')) { return }
+    # a module that wraps the runner is the caller, so it names the job's directory instead
+    $directory = if ($Config.directory) { $Config.directory } else { $MyInvocation.PSScriptRoot }
+    if (!$PSCmdlet.ShouldProcess($directory, 'Invoke-DataAgent')) { return }
     $ErrorActionPreference = 'Stop'
     $ConfirmPreference = 'None'
-    Set-Location -LiteralPath $MyInvocation.PSScriptRoot
+    Set-Location -LiteralPath $directory
     $log = '{0:yyyyMMdd}.log' -f (Get-Date)
     try {
         & {

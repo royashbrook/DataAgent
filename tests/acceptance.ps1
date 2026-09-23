@@ -46,6 +46,26 @@ Assert ((Get-Location).Path -eq (Join-Path $root 'csv')) 'module stays in callin
 Assert ((Get-Content "$root/csv/$((Get-Date).ToString('yyyyMMdd')).log" -Raw) -match '\tEnd') 'module appends daily job log'
 Assert (!(Test-Path "$root/csv/*.receipt.json")) 'no receipt artifacts'
 
+# A module that wraps the runner is the caller, so without directory its own folder is where the run happens.
+Module Wrapper @'
+function Invoke-Wrapper($Config) { Invoke-DataAgent -Config $Config }
+Export-ModuleMember -Function Invoke-Wrapper
+'@
+$null = New-Item -ItemType Directory "$root/wrapper-job"
+'param($Config); Import-Module Wrapper -Force; Invoke-Wrapper $Config' | Set-Content "$root/wrapper-job/job.ps1"
+$cfg = Config 'wrapped'; $cfg.Remove('purgefiles'); $cfg.Remove('keepdays')
+Set-Location $before
+& "$root/wrapper-job/job.ps1" $cfg | Out-Null
+Assert ((Test-Path "$root/modules/Wrapper/output.csv") -and !(Test-Path "$root/wrapped/output.csv")) 'without directory a wrapper module is the working directory'
+Remove-Item "$root/modules/Wrapper/output.csv", "$root/modules/Wrapper/*.log"
+$cfg.directory = "$root/wrapped"
+Set-Location $before
+& "$root/wrapper-job/job.ps1" $cfg | Out-Null
+Assert ((Get-FileHash "$root/wrapped/output.csv").Hash -eq (Get-FileHash $expected).Hash) 'directory receives the output'
+Assert ((Get-Content "$root/wrapped/$((Get-Date).ToString('yyyyMMdd')).log" -Raw) -match '\tEnd') 'directory receives the daily log'
+Assert (!(Test-Path "$root/modules/Wrapper/output.csv") -and !(Test-Path "$root/modules/Wrapper/*.log") -and !(Test-Path "$root/wrapper-job/output.csv")) 'directory keeps the wrapper and job folders clean'
+Assert ((Get-Location).Path -eq (Join-Path $root 'wrapped')) 'runner stays in the configured directory'
+
 foreach ($mode in @('Always', 'AsNeeded', 'Never', 'Strip')) {
     $c = Config $mode
     $c.fmt.args.UseQuotes = if ($mode -eq 'Strip') { 'Always' } else { $mode }
@@ -222,7 +242,7 @@ foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
 }
 Remove-Module DataAgent -Force
 $env:PSModulePath = (@("$root/staged", $priorModules) -join [IO.Path]::PathSeparator)
-Import-Module DataAgent.Test -RequiredVersion 0.4.2
+Import-Module DataAgent.Test -RequiredVersion 0.5.0
 $result = @(Test-DataAgent)
 Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
 $env:PSModulePath = $priorModules
