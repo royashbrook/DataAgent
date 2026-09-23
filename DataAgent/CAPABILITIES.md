@@ -8,7 +8,7 @@ one public command: `Invoke-DataAgent -Config $cfg`. call it from a job `.ps1` i
 
 the runner loads Add-PrefixForLogging, optionally calls Clear-Files with `purgefiles` / `keepdays`, then runs source -> formatter -> destinations. no records means `No data available`, no file and no send. destinations run in order; a failure stops the job. ordinary output and `l` messages append to `yyyyMMdd.log` and the screen. terminating errors are logged and rethrown.
 
-`directory`, if present, is the absolute path the run works in: its log, relative adapter paths and output all resolve there. leave it out and the run works in the calling script's directory. set it when another module wraps the runner and makes the call, since that module's own file would otherwise be the caller.
+`directory`, if present, is the path the run works in: its log, relative adapter paths and output all resolve there. give an absolute path; a relative one resolves against the caller's current location, not the job. leave it out and the run works in the calling script's directory. set it when another module wraps the runner and makes the call, since that module's own file would otherwise be the caller.
 
 `file_format`, if present, is formatted with the run's current date and overrides `fmt.args.Path`. otherwise supply Path yourself. the configured filename goes to the formatter and destinations, not a FileInfo object. built-ins write directly and overwrite. use a dedicated job directory without overlapping workers.
 
@@ -45,7 +45,7 @@ set `adapter` to a `.ps1` path, relative to the job directory or absolute. no re
 - formatter: write Options.Path. a custom script can write a ZIP or a list of paths; it must produce every configured output and throw on failure.
 - destination: Data is the configured filename string or strings. every destination receives all of them; built-in email still accepts only one.
 
-adapters must not change location. config selects executable code and is trusted like the job script itself. these scripts are internal, not independently exported commands or modules.
+adapters must not change location. the runner moves PowerShell's location, not the process working directory, so a relative path handed to .NET (`[IO.File]::ReadAllBytes` and the like) reads from the process directory instead of the job; resolve it first (`Resolve-Path`, or `Join-Path (Get-Location)`) or use a full path. config selects executable code and is trusted like the job script itself. these scripts are internal, not independently exported commands or modules.
 
 ## dependencies and limits
 
