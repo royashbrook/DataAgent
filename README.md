@@ -3,13 +3,13 @@
 the repeated part of a feed job: get data, format it, send it. use the tools you already use.
 
 ```powershell
-Install-Module DataAgent -RequiredVersion 0.4.2 -Scope CurrentUser
+Install-Module DataAgent -RequiredVersion 0.5.0 -Scope CurrentUser
 ```
 
 ## the job
 
 ```powershell
-Import-Module DataAgent -RequiredVersion 0.4.2
+Import-Module DataAgent -RequiredVersion 0.5.0
 Invoke-DataAgent -Config $cfg
 ```
 
@@ -19,7 +19,7 @@ put these calls in the job's `.ps1`. `$cfg` is a hashtable supplied by that scri
 
 read the [capability brief](DataAgent/CAPABILITIES.md) for the config contract, all nine built-in adapters, owned options versus helper pass-throughs, custom scripts, dependencies and limits. the same file ships in the gallery module, so an agent or person can inspect the installed contract without reading code or running a job.
 
-the runner sets location to the calling script's directory, logs to screen and `yyyyMMdd.log`, cleans up when configured, then gets, formats and sends. empty results send nothing. `-WhatIf` skips the whole run. custom adapters need no core edit.
+the runner sets location to the calling script's directory (or the config's `directory`, for a module that wraps the runner), logs to screen and `yyyyMMdd.log`, cleans up when configured, then gets, formats and sends. empty results send nothing. `-WhatIf` skips the whole run. custom adapters need no core edit.
 
 **0.4 is a breaking change from 0.3.** use `Invoke-DataAgent -Config` and src/fmt/dst. Pipeline/Extract/Transform/Deliver and provider/receipt helpers are removed. installation does not migrate jobs.
 

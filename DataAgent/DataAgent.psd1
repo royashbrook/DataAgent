@@ -1,6 +1,6 @@
 @{
     RootModule = 'DataAgent.psm1'
-    ModuleVersion = '0.4.2'
+    ModuleVersion = '0.5.0'
     GUID = '32662c0b-0a5d-49ac-8c62-8f7ae05f79c0'
     Author = 'Roy Ashbrook'
     Copyright = '(c) 2026 Roy Ashbrook. MIT License.'
@@ -16,7 +16,7 @@
             Tags = @('ETL', 'Data', 'CSV', 'Automation', 'PSEdition_Core', 'Windows', 'Linux', 'MacOS')
             LicenseUri = 'https://github.com/royashbrook/DataAgent/blob/main/LICENSE'
             ProjectUri = 'https://github.com/royashbrook/DataAgent'
-            ReleaseNotes = 'Package CAPABILITIES.md with the adapter inventory, owned options, helper pass-throughs and limits. CI checks its coverage and packaged bytes. Runtime scripts unchanged from 0.4.1.'
+            ReleaseNotes = 'An optional directory in the config names where the run works: its log, relative adapter paths and output. Without it the run works in the calling script''s directory, as before. A module that wraps the runner and makes the call sets it, since its own file would otherwise be the caller.'
         }
     }
 }
