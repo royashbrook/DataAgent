@@ -12,22 +12,25 @@ function Resolve-Setting {
         foreach ($key in $Value.Keys) { $resolved[$key] = Resolve-Setting $Value[$key] }
         # a username and a password, and nothing else, is a login
         if ($resolved.Count -eq 2 -and $resolved.ContainsKey('username') -and $resolved.ContainsKey('password')) {
-            return [pscredential]::new($resolved.username, (ConvertTo-SecureString $resolved.password -AsPlainText -Force))
+            return [pscredential]::new($resolved.username, [Net.NetworkCredential]::new('', $resolved.password).SecurePassword)
         }
         return $resolved
     }
-    if ($Value -is [array]) { return , @($Value | ForEach-Object { Resolve-Setting $_ }) }
+    # arrays from JSON and lists from a script caller alike
+    if ($Value -is [Collections.IList]) { return , @($Value | ForEach-Object { Resolve-Setting $_ }) }
     $Value
 }
 
 function Invoke-DataAgent {
     [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory)] $Config)
-    # a path is a settings file, and the run works in its folder unless the settings name one
+    # a path is a settings file, and the run works in its folder unless the settings name one; a
+    # relative directory in the file means relative to the file, not to wherever the caller stands
     if ($Config -is [string]) {
         $file = Get-Item -LiteralPath $Config
         $Config = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json -AsHashtable
-        if (!$Config.directory) { $Config.directory = $file.DirectoryName }
+        $Config.directory = if (!$Config.directory) { $file.DirectoryName }
+            else { [IO.Path]::GetFullPath($Config.directory, $file.DirectoryName) }
     }
     # a module that wraps the runner is the caller, so it names the job's directory instead
     $directory = if ($Config.directory) { $Config.directory } else { $MyInvocation.PSScriptRoot }

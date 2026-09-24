@@ -268,6 +268,18 @@ Assert ((Get-Location).Path -eq $before) 'WhatIf skips resolution'
 $cfg = Config 'literal'; $cfg.fmt.args.Path = 'env-free.csv'; $cfg.src.args.Header = @('env:', 'user')
 $null = Run 'literal' $cfg
 Assert (Test-Path "$root/literal/env-free.csv") 'values without a variable name pass through'
+$null = New-Item -ItemType Directory "$root/settings-feed/work"
+$relative = Get-Content "$root/settings-feed/settings.json" -Raw | ConvertFrom-Json -AsHashtable
+$relative.directory = 'work'; $relative.Remove('dst')
+$relative | ConvertTo-Json -Depth 8 | Set-Content "$root/settings-feed/relative.json"
+Set-Location $before
+$null = Invoke-DataAgent "$root/settings-feed/relative.json"
+Assert (Test-Path "$root/settings-feed/work/output.csv") 'a relative directory in a settings file is relative to the file'
+$cfg = Config 'list'
+$cfg.dst = @{ adapter = './dst.ps1'; args = @{ Credential = @{ username = 'env:DATAAGENT_TEST_USER'; password = 'literal' }; to = [Collections.Generic.List[object]]@('env:DATAAGENT_TEST_USER', 'second') } }
+Copy-Item "$root/settings-feed/dst.ps1" "$root/list/dst.ps1"
+$null = Run 'list' $cfg
+Assert ((Get-Content "$root/list/login.txt") -eq 'PSCredential|synthetic user|literal|synthetic user;second') 'a list from a script caller resolves too'
 Remove-Item Env:DATAAGENT_TEST_SOURCE, Env:DATAAGENT_TEST_USER
 
 . "$PSScriptRoot/transfers.ps1"
