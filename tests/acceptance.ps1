@@ -231,6 +231,57 @@ $logPath = Join-Path "$root/extension" ('{0:yyyyMMdd}.log' -f (Get-Date))
 $null = Run 'extension' $cfg
 Assert (@(Get-Content $logPath | Where-Object { $_ -match '\tEnd$' }).Count -eq 2) 'built-in daily tee appends across runs'
 
+# A settings path is the whole job: env: values and logins resolve at run time, the run works in the
+# settings folder, and nothing resolved reaches the log.
+$null = New-Item -ItemType Directory "$root/settings-job", "$root/settings-feed"
+Copy-Item "$repo/testing/DataAgent.Test/synthetic.csv" "$root/settings-feed/rows.csv"
+'param($Data,$Options); $c = $Options.Credential; "{0}|{1}|{2}|{3}" -f $c.GetType().Name,$c.UserName,$c.GetNetworkCredential().Password,($Options.to -join ";") | Set-Content login.txt' |
+    Set-Content "$root/settings-feed/dst.ps1"
+@{
+    file_format = 'output.csv'
+    src = @{ adapter = 'csv'; args = @{ LiteralPath = 'env:DATAAGENT_TEST_SOURCE' } }
+    fmt = @{ adapter = 'csv'; args = @{} }
+    dst = @{ adapter = './dst.ps1'; args = @{ Credential = @{ username = 'env:DATAAGENT_TEST_USER'; password = 'env:DATAAGENT_TEST_PASSWORD' }; to = @('env:DATAAGENT_TEST_USER') } }
+} | ConvertTo-Json -Depth 8 | Set-Content "$root/settings-feed/settings.json"
+'Invoke-DataAgent "$PSScriptRoot/../settings-feed/settings.json"' | Set-Content "$root/settings-job/job.ps1"
+$env:DATAAGENT_TEST_SOURCE = "$root/settings-feed/rows.csv"
+$env:DATAAGENT_TEST_USER = 'synthetic user'
+$env:DATAAGENT_TEST_PASSWORD = 'synthetic password'
+Set-Location $before
+$PSStyle.OutputRendering = 'Ansi'
+$null = & "$root/settings-job/job.ps1"
+Assert ($PSStyle.OutputRendering -eq 'Ansi') 'output rendering restored after the run'
+Import-Csv "$repo/testing/DataAgent.Test/synthetic.csv" | Export-Csv $expected -NoTypeInformation
+Assert ((Get-FileHash "$root/settings-feed/output.csv").Hash -eq (Get-FileHash $expected).Hash) 'settings path runs in the settings folder'
+Assert ((Get-Content "$root/settings-feed/login.txt") -eq 'PSCredential|synthetic user|synthetic password|synthetic user') 'env: values, a login and a list resolve'
+Assert (!(Test-Path "$root/settings-job/output.csv") -and !(Test-Path "$root/settings-job/*.log")) 'settings path keeps the job folder clean'
+$settingsLog = Get-Content (Join-Path "$root/settings-feed" ('{0:yyyyMMdd}.log' -f (Get-Date))) -Raw
+Assert ($settingsLog -match '\tEnd' -and $settingsLog -notmatch 'synthetic password') 'resolved secrets stay out of the log'
+Assert ($settingsLog -notmatch "`e\[") 'log is plain text'
+Assert ((Get-Content "$root/settings-feed/settings.json" -Raw) -match 'env:DATAAGENT_TEST_PASSWORD') 'settings file is never rewritten'
+Remove-Item Env:DATAAGENT_TEST_PASSWORD
+Refuses { & "$root/settings-job/job.ps1" } 'DATAAGENT_TEST_PASSWORD is not set'
+Assert ((Get-Content (Join-Path "$root/settings-feed" ('{0:yyyyMMdd}.log' -f (Get-Date))) -Raw) -match 'DATAAGENT_TEST_PASSWORD is not set') 'an unset variable is logged by name'
+Set-Location $before
+$null = Invoke-DataAgent "$root/settings-feed/settings.json" -WhatIf
+Assert ((Get-Location).Path -eq $before) 'WhatIf skips resolution'
+$cfg = Config 'literal'; $cfg.fmt.args.Path = 'env-free.csv'; $cfg.src.args.Header = @('env:', 'user')
+$null = Run 'literal' $cfg
+Assert (Test-Path "$root/literal/env-free.csv") 'values without a variable name pass through'
+$null = New-Item -ItemType Directory "$root/settings-feed/work"
+$relative = Get-Content "$root/settings-feed/settings.json" -Raw | ConvertFrom-Json -AsHashtable
+$relative.directory = 'work'; $relative.Remove('dst')
+$relative | ConvertTo-Json -Depth 8 | Set-Content "$root/settings-feed/relative.json"
+Set-Location $before
+$null = Invoke-DataAgent "$root/settings-feed/relative.json"
+Assert (Test-Path "$root/settings-feed/work/output.csv") 'a relative directory in a settings file is relative to the file'
+$cfg = Config 'list'
+$cfg.dst = @{ adapter = './dst.ps1'; args = @{ Credential = @{ username = 'env:DATAAGENT_TEST_USER'; password = 'literal' }; to = [Collections.Generic.List[object]]@('env:DATAAGENT_TEST_USER', 'second') } }
+Copy-Item "$root/settings-feed/dst.ps1" "$root/list/dst.ps1"
+$null = Run 'list' $cfg
+Assert ((Get-Content "$root/list/login.txt") -eq 'PSCredential|synthetic user|literal|synthetic user;second') 'a list from a script caller resolves too'
+Remove-Item Env:DATAAGENT_TEST_SOURCE, Env:DATAAGENT_TEST_USER
+
 . "$PSScriptRoot/transfers.ps1"
 
 foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
@@ -242,7 +293,7 @@ foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
 }
 Remove-Module DataAgent -Force
 $env:PSModulePath = (@("$root/staged", $priorModules) -join [IO.Path]::PathSeparator)
-Import-Module DataAgent.Test -RequiredVersion 0.5.0
+Import-Module DataAgent.Test -RequiredVersion 0.6.0
 $result = @(Test-DataAgent)
 Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
 $env:PSModulePath = $priorModules
