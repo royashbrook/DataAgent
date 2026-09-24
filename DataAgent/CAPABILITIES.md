@@ -1,10 +1,12 @@
 # DataAgent capabilities
 
-one public command: `Invoke-DataAgent -Config $cfg`. call it from a job `.ps1` in PowerShell 7.4+. it changes to the calling script's directory, or to `directory` when the config sets it, and stays there, including on failure. `-WhatIf` skips the entire run, including imports and cleanup.
+one public command: `Invoke-DataAgent -Config $cfg`, where `$cfg` is a hashtable or the path to a JSON settings file. call it from a job `.ps1` in PowerShell 7.4+. it changes to the calling script's directory, to the settings file's directory when given a path, or to `directory` when the config sets it, and stays there, including on failure. `-WhatIf` skips the entire run, including imports, secret resolution and cleanup.
 
 ## config and flow
 
-`src` and `fmt` each take `{ adapter = 'name'; args = @{ ... } }`. `dst` takes one descriptor, a list, or nothing for format-only. `args` become the adapter's `Options` hashtable. pass credentials at runtime; no environment variable names are assumed. keep secrets out of committed config and logs.
+`src` and `fmt` each take `{ adapter = 'name'; args = @{ ... } }`. `dst` takes one descriptor, a list, or nothing for format-only. `args` become the adapter's `Options` hashtable. keep secrets out of committed config and logs.
+
+runtime values: any string that is exactly `env:NAME`, at any depth, is replaced with that environment variable when the run starts. an unset or empty one stops the run and the error names the variable. an object with exactly the keys `username` and `password` (after that replacement) becomes a PSCredential. the config names every variable, so the runner assumes none of its own. a settings file on disk is read, never rewritten. objects other than hashtables and arrays, such as a PSCredential built by the caller, pass through unchanged. ANSI colour is kept to the screen for the run and the prior setting is restored after.
 
 the runner loads Add-PrefixForLogging, optionally calls Clear-Files with `purgefiles` / `keepdays`, then runs source -> formatter -> destinations. no records means `No data available`, no file and no send. destinations run in order; a failure stops the job. ordinary output and `l` messages append to `yyyyMMdd.log` and the screen. terminating errors are logged and rethrown.
 

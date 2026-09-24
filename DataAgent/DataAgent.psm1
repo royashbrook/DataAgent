@@ -1,6 +1,34 @@
+function Resolve-Setting {
+    param($Value)
+    # 'env:NAME' is read when the run starts, so a secret lives in the environment and the config
+    # only names it
+    if ($Value -is [string] -and $Value -match '^env:(.+)$') {
+        $found = [Environment]::GetEnvironmentVariable($Matches[1])
+        if ([string]::IsNullOrEmpty($found)) { throw "environment variable $($Matches[1]) is not set." }
+        return $found
+    }
+    if ($Value -is [Collections.IDictionary]) {
+        $resolved = @{}
+        foreach ($key in $Value.Keys) { $resolved[$key] = Resolve-Setting $Value[$key] }
+        # a username and a password, and nothing else, is a login
+        if ($resolved.Count -eq 2 -and $resolved.ContainsKey('username') -and $resolved.ContainsKey('password')) {
+            return [pscredential]::new($resolved.username, (ConvertTo-SecureString $resolved.password -AsPlainText -Force))
+        }
+        return $resolved
+    }
+    if ($Value -is [array]) { return , @($Value | ForEach-Object { Resolve-Setting $_ }) }
+    $Value
+}
+
 function Invoke-DataAgent {
     [CmdletBinding(SupportsShouldProcess)]
-    param([Parameter(Mandatory)][hashtable] $Config)
+    param([Parameter(Mandatory)] $Config)
+    # a path is a settings file, and the run works in its folder unless the settings name one
+    if ($Config -is [string]) {
+        $file = Get-Item -LiteralPath $Config
+        $Config = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json -AsHashtable
+        if (!$Config.directory) { $Config.directory = $file.DirectoryName }
+    }
     # a module that wraps the runner is the caller, so it names the job's directory instead
     $directory = if ($Config.directory) { $Config.directory } else { $MyInvocation.PSScriptRoot }
     if (!$PSCmdlet.ShouldProcess($directory, 'Invoke-DataAgent')) { return }
@@ -8,10 +36,14 @@ function Invoke-DataAgent {
     $ConfirmPreference = 'None'
     Set-Location -LiteralPath $directory
     $log = '{0:yyyyMMdd}.log' -f (Get-Date)
+    # colour codes stay on the screen and out of the log
+    $rendering = $PSStyle.OutputRendering
+    $PSStyle.OutputRendering = 'Host'
     try {
         & {
             Import-Module Add-PrefixForLogging
             l 'Start'
+            $Config = Resolve-Setting $Config
             if ($Config.purgefiles) {
                 Import-Module Clear-Files
                 l 'Cleanup'; Clear-Files $Config
@@ -37,6 +69,8 @@ function Invoke-DataAgent {
     } catch {
         $_ | Out-String | Add-Content -LiteralPath $log
         throw
+    } finally {
+        $PSStyle.OutputRendering = $rendering
     }
 }
 
