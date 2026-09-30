@@ -1,5 +1,5 @@
 param($Data, [hashtable] $Options)
-Import-Module Posh-SSH -ErrorAction Stop
+Import-Module Posh-SSH -RequiredVersion 4.0.0 -ErrorAction Stop
 $connect = $Options.connect; $send = $Options.send
 $session = New-SFTPSession @connect
 try {

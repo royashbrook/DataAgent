@@ -3,13 +3,13 @@
 the repeated part of a feed job: get data, format it, send it. use the tools you already use.
 
 ```powershell
-Install-Module DataAgent -RequiredVersion 0.6.0 -Scope CurrentUser
+Install-Module DataAgent -RequiredVersion 0.7.0 -Scope CurrentUser
 ```
 
 ## the job
 
 ```powershell
-Import-Module DataAgent -RequiredVersion 0.6.0
+Import-Module DataAgent -RequiredVersion 0.7.0
 Invoke-DataAgent "$PSScriptRoot/settings.json"
 ```
 
@@ -31,6 +31,7 @@ from a checkout, add the repo and `testing` directory to PSModulePath. install t
 
 ```powershell
 ./tests/acceptance.ps1
+./tests/pins.ps1
 ./tests/capabilities.ps1
 ./tests/package.ps1
 ```

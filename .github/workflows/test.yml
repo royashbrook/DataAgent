@@ -14,7 +14,7 @@ jobs:
       - name: Install existing helper dependencies
         shell: pwsh
         run: |
-          Install-Module Add-PrefixForLogging -RequiredVersion 1.0.0.2 -Scope CurrentUser -Force -Repository PSGallery
+          Install-Module Add-PrefixForLogging -RequiredVersion 1.0.0.3 -Scope CurrentUser -Force -Repository PSGallery
           Install-Module Clear-Files -RequiredVersion 1.0.0.0 -Scope CurrentUser -Force -Repository PSGallery
           Install-Module Send-FileViaEmail -RequiredVersion 2.0.0.0 -Scope CurrentUser -Force -Repository PSGallery
           Install-Module ImportExcel -RequiredVersion 7.8.10 -Scope CurrentUser -Force -Repository PSGallery
@@ -24,6 +24,7 @@ jobs:
       - name: Capability brief and package
         shell: pwsh
         run: |
+          ./tests/pins.ps1
           ./tests/capabilities.ps1
           ./tests/capabilities-negative.ps1
           ./tests/package.ps1

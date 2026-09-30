@@ -44,11 +44,11 @@ function Invoke-DataAgent {
     $PSStyle.OutputRendering = 'Host'
     try {
         & {
-            Import-Module Add-PrefixForLogging
+            Import-Module Add-PrefixForLogging -RequiredVersion 1.0.0.3
             l 'Start'
             $Config = Resolve-Setting $Config
             if ($Config.purgefiles) {
-                Import-Module Clear-Files
+                Import-Module Clear-Files -RequiredVersion 1.0.0.0
                 l 'Cleanup'; Clear-Files $Config
             }
             $adapters = @{}

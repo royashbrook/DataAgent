@@ -10,9 +10,16 @@ function Refuses([scriptblock]$Action, $Pattern) {
     try { & $Action | Out-Null } catch { Assert ("$_" -match $Pattern) "refusal: $Pattern"; return }
     throw "Expected refusal: $Pattern"
 }
+function Pin($Name) {
+    $found = Get-ChildItem "$repo/DataAgent" -Recurse -Include *.ps1, *.psm1 | Select-String "Import-Module $Name -RequiredVersion (\S+)" | Select-Object -First 1
+    # a test-only stub with no built-in import (the custom formatter, say) has no pin, any version does
+    if ($found) { $found.Matches[0].Groups[1].Value } else { '1.0.0' }
+}
 function Module($Name, $Code) {
     $null = New-Item -ItemType Directory "$root/modules/$Name" -Force
     $Code | Set-Content "$root/modules/$Name/$Name.psm1"
+    # the built-ins import every helper at a pinned version, so a stub carries that version too
+    New-ModuleManifest "$root/modules/$Name/$Name.psd1" -RootModule "$Name.psm1" -ModuleVersion (Pin $Name) -FunctionsToExport '*'
 }
 function Config($Name) {
     $null = New-Item -ItemType Directory "$root/$Name"
@@ -293,7 +300,7 @@ foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
 }
 Remove-Module DataAgent -Force
 $env:PSModulePath = (@("$root/staged", $priorModules) -join [IO.Path]::PathSeparator)
-Import-Module DataAgent.Test -RequiredVersion 0.6.0
+Import-Module DataAgent.Test -RequiredVersion 0.7.0
 $result = @(Test-DataAgent)
 Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
 $env:PSModulePath = $priorModules

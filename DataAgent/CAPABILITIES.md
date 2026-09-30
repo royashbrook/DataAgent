@@ -51,7 +51,7 @@ adapters must not change location. the runner moves PowerShell's location, not t
 
 ## dependencies and limits
 
-the runner does not install dependencies. tested versions: Add-PrefixForLogging 1.0.0.2, Clear-Files 1.0.0.0, SqlServer 22.4.5.1, Send-FileViaEmail 2.0.0.0, ImportExcel 7.8.10, Posh-SSH 3.2.7. install only the helpers the job uses and pin provisioning versions.
+the runner does not install dependencies. every helper is imported at a pinned version, the one the tests ran against: Add-PrefixForLogging 1.0.0.3, Clear-Files 1.0.0.0, SqlServer 22.4.5.1, Send-FileViaEmail 2.0.0.0, ImportExcel 7.8.10, Posh-SSH 4.0.0. install exactly those versions on the runner, only for the helpers the job uses; a newer install beside them changes nothing, a missing pinned version stops the run.
 
 no cache/deduplication, acknowledgment tracking, retry engine, receipts, scheduler or conditional routing. cleanup remains Clear-Files behavior; choose deliberate patterns in a dedicated output directory. provider limits still apply. before adopting a feed, prove its output/layout, runner identity, dependencies, cleanup and scoped delivery behavior. this brief is not a live-provider test.
 
