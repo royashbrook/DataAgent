@@ -31,6 +31,7 @@ from a checkout, add the repo and `testing` directory to PSModulePath. install t
 
 ```powershell
 ./tests/acceptance.ps1
+./tests/pins.ps1
 ./tests/capabilities.ps1
 ./tests/package.ps1
 ```
