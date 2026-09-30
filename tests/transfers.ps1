@@ -2,9 +2,11 @@
 Module Posh-SSH @'
 $script:events = [Collections.Generic.List[object]]::new()
 $script:fail = $false
+$script:refuse = 0
 function New-SFTPSession {
     param($ComputerName,$Credential,[switch]$ErrorOnUntrusted,$Port)
     if (!$ErrorOnUntrusted -or $Credential.UserName -ne 'synthetic') { throw 'connect arguments changed' }
+    if ($script:refuse -gt 0) { $script:refuse--; throw 'Socket read operation has timed out' }
     $script:events.Add('connect'); [pscustomobject]@{SessionId=1}
 }
 function Set-SFTPItem {
@@ -27,6 +29,14 @@ Assert ($events.Count -eq 3 -and $events[1].Destination -eq '/inbox' -and $event
 & $ssh { $script:fail=$true; $script:events.Clear() }
 Refuses { Run 'sftp' $cfg } 'upload failed'
 Assert (@(& $ssh { $script:events.ToArray() })[-1] -eq 'disconnect') 'SFTP cleanup after failure'
+& $ssh { $script:fail=$false; $script:refuse=2; $script:events.Clear() }
+$cfg.dst.args.delay = 0
+$null = Run 'sftp' $cfg
+$events = @(& $ssh { $script:events.ToArray() })
+Assert ($events[0] -eq 'connect' -and $events.Count -eq 3) 'SFTP connect retried until it answered, one upload'
+& $ssh { $script:refuse=3; $script:events.Clear() }
+Refuses { Run 'sftp' $cfg } 'timed out'
+Assert (@(& $ssh { $script:events.ToArray() }).Count -eq 0) 'SFTP connect gave up with the original error, nothing sent'
 
 Add-Type @'
 using System;
