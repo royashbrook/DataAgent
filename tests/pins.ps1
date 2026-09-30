@@ -15,8 +15,17 @@ $brief = Get-Content "$repo/DataAgent/CAPABILITIES.md" -Raw
 foreach ($name in $pins.Keys) {
     if ($brief -notmatch "\b$([regex]::Escape($name)) $([regex]::Escape($pins[$name]))\b") { throw "brief does not list $name $($pins[$name])" }
 }
+# CI installs every pinned helper the tests use for real, at the pinned version. a helper the tests
+# replace with a stub (Module <name> in the test scripts) needs no install
+$stubbed = @(Get-ChildItem "$repo/tests" -Filter *.ps1 | Select-String '^Module (\S+) @' | ForEach-Object { $_.Matches[0].Groups[1].Value })
+$installed = @{}
 foreach ($line in Get-Content "$repo/.github/workflows/test.yml" | Select-String 'Install-Module (\S+) -RequiredVersion (\S+)') {
-    $name = $line.Matches[0].Groups[1].Value; $version = $line.Matches[0].Groups[2].Value
-    if ($pins[$name] -ne $version) { throw "test.yml installs $name $version, the module pins $($pins[$name])" }
+    $installed[$line.Matches[0].Groups[1].Value] = $line.Matches[0].Groups[2].Value
 }
+foreach ($name in $pins.Keys) {
+    if ($stubbed -contains $name) { continue }
+    if (!$installed.ContainsKey($name)) { throw "test.yml does not install $name, and the tests do not stub it" }
+    if ($installed[$name] -ne $pins[$name]) { throw "test.yml installs $name $($installed[$name]), the module pins $($pins[$name])" }
+}
+foreach ($name in $installed.Keys) { if (!$pins[$name]) { throw "test.yml installs $name, which nothing imports" } }
 "PASS: $($pins.Count) helpers pinned, brief and CI agree: " + (($pins.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name) $($_.Value)" }) -join ', ')
