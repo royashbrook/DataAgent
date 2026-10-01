@@ -1,6 +1,6 @@
 @{
     RootModule = 'DataAgent.psm1'
-    ModuleVersion = '0.7.1'
+    ModuleVersion = '0.7.2'
     GUID = '32662c0b-0a5d-49ac-8c62-8f7ae05f79c0'
     Author = 'Roy Ashbrook'
     Copyright = '(c) 2026 Roy Ashbrook. MIT License.'
@@ -16,7 +16,7 @@
             Tags = @('ETL', 'Data', 'CSV', 'Automation', 'PSEdition_Core', 'Windows', 'Linux', 'MacOS')
             LicenseUri = 'https://github.com/royashbrook/DataAgent/blob/main/LICENSE'
             ProjectUri = 'https://github.com/royashbrook/DataAgent'
-            ReleaseNotes = 'dst/sftp tries the connect again when the host does not answer: attempts (3) and delay (60 seconds) in its args, the original error after the last try. No other change.'
+            ReleaseNotes = 'fmt/xlsx replaces an existing file at Path instead of writing into it, so a shorter run on the same day leaves none of the last run''s rows. No other change.'
         }
     }
 }
