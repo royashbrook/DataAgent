@@ -290,6 +290,7 @@ Assert ((Get-Content "$root/list/login.txt") -eq 'PSCredential|synthetic user|li
 Remove-Item Env:DATAAGENT_TEST_SOURCE, Env:DATAAGENT_TEST_USER
 
 . "$PSScriptRoot/transfers.ps1"
+. "$PSScriptRoot/cosmos.ps1"
 
 foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
     $name = Split-Path $package -Leaf
@@ -300,7 +301,7 @@ foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
 }
 Remove-Module DataAgent -Force
 $env:PSModulePath = (@("$root/staged", $priorModules) -join [IO.Path]::PathSeparator)
-Import-Module DataAgent.Test -RequiredVersion 0.7.1
+Import-Module DataAgent.Test -RequiredVersion 0.8.0
 $result = @(Test-DataAgent)
 Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
 $env:PSModulePath = $priorModules
