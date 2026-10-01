@@ -7,7 +7,7 @@ function global:Invoke-WebRequest {
     if ($Headers['x-ms-date'] -eq 'refuse') { throw 'Unauthorized' }
     if ($Uri -match 'refusing') { throw 'Unauthorized' }
     $page = if ($Headers.ContainsKey('x-ms-continuation')) { 2 } else { 1 }
-    $documents = @(@{ id = "$page-a"; billto = 'SYN'; gross = $page * 10 }, @{ id = "$page-b"; billto = 'SYN'; gross = $page * 10 + 1 })
+    $documents = @(@{ id = "$page-a"; billto = 'SYN'; gross = $page * 10; at = '2026-09-30T04:13:00Z' }, @{ id = "$page-b"; billto = 'SYN'; gross = $page * 10 + 1 })
     $out = [pscustomobject]@{ Content = (@{ Documents = $documents; _count = 2 } | ConvertTo-Json -Depth 5 -Compress); Headers = @{} }
     if ($page -eq 1) { $out.Headers['x-ms-continuation'] = @('token-page-2') }
     $out
@@ -19,6 +19,7 @@ try {
     $null = Run 'cosmos' $cfg
     $rows = @(Import-Csv "$root/cosmos/output.csv")
     Assert ($rows.Count -eq 4 -and $rows[0].id -eq '1-a' -and $rows[3].gross -eq '21') 'cosmos: both pages become rows, in order'
+    Assert ($rows[0].at -ceq '2026-09-30T04:13:00Z') 'cosmos: an iso date comes through as the stored string'
     Assert ($global:cosmosCalls.Count -eq 2 -and $global:cosmosCalls[1].Headers['x-ms-continuation'] -eq 'token-page-2') 'cosmos: the second post carries the continuation token'
     $first = $global:cosmosCalls[0]
     Assert ($first.Uri -eq 'https://synthetic.documents.invalid/dbs/bc/colls/orders/docs' -and $first.ContentType -eq 'application/query+json') 'cosmos: query posts to the container docs link'

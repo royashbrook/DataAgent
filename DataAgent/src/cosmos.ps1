@@ -14,6 +14,7 @@ do {
     }
     if ($continuation) { $headers['x-ms-continuation'] = $continuation }
     $response = Invoke-WebRequest -Method Post -Uri "$($Options.Endpoint.TrimEnd('/'))/$link/docs" -Headers $headers -Body $body -ContentType 'application/query+json'
-    ($response.Content | ConvertFrom-Json).Documents
+    # a source hands back what is stored: an iso date stays its string, not a local DateTime
+    ($response.Content | ConvertFrom-Json -DateKind String).Documents
     $continuation = "$($response.Headers['x-ms-continuation'])"
 } while ($continuation)
