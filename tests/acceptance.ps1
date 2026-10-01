@@ -196,6 +196,10 @@ Import-Csv "$repo/testing/DataAgent.Test/synthetic.csv" | Export-Excel "$root/na
 $actual = Import-Excel "$root/xlsx/output.xlsx" | ConvertTo-Json -Compress
 $native = Import-Excel "$root/native.xlsx" | ConvertTo-Json -Compress
 Assert ($actual -eq $native) 'XLSX native cell semantics including newline normalization'
+Import-Csv "$repo/testing/DataAgent.Test/synthetic.csv" | Select-Object -First 1 | Export-Csv "$root/one.csv" -NoTypeInformation
+$cfg.src.args.LiteralPath = "$root/one.csv"
+$null = Run 'xlsx' $cfg
+Assert (@(Import-Excel "$root/xlsx/output.xlsx").Count -eq 1) 'XLSX replaces the file: a shorter run leaves none of the last run''s rows'
 
 # The real email helper runs; only its HTTP boundary is replaced in this process.
 Import-Module Send-FileViaEmail -RequiredVersion 2.0.0.0
@@ -300,7 +304,7 @@ foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
 }
 Remove-Module DataAgent -Force
 $env:PSModulePath = (@("$root/staged", $priorModules) -join [IO.Path]::PathSeparator)
-Import-Module DataAgent.Test -RequiredVersion 0.7.1
+Import-Module DataAgent.Test -RequiredVersion 0.7.2
 $result = @(Test-DataAgent)
 Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
 $env:PSModulePath = $priorModules
