@@ -15,7 +15,7 @@ jobs:
         shell: pwsh
         run: |
           Install-Module Add-PrefixForLogging -RequiredVersion 1.0.0.3 -Scope CurrentUser -Force -Repository PSGallery
-          Install-Module Clear-Files -RequiredVersion 1.0.0.0 -Scope CurrentUser -Force -Repository PSGallery
+          Install-Module Clear-Files -RequiredVersion 1.1.0.0 -Scope CurrentUser -Force -Repository PSGallery
           Install-Module Send-FileViaEmail -RequiredVersion 2.0.0.0 -Scope CurrentUser -Force -Repository PSGallery
           Install-Module ImportExcel -RequiredVersion 7.8.10 -Scope CurrentUser -Force -Repository PSGallery
       - name: Offline acceptance

@@ -48,8 +48,10 @@ function Invoke-DataAgent {
             l 'Start'
             $Config = Resolve-Setting $Config
             if ($Config.purgefiles) {
-                Import-Module Clear-Files -RequiredVersion 1.0.0.0
-                l 'Cleanup'; Clear-Files $Config
+                Import-Module Clear-Files -RequiredVersion 1.1.0.0
+                $cleanup = @{}
+                if ($Config.ContainsKey('filename_date_format')) { $cleanup.FilenameDateFormat = $Config.filename_date_format }
+                l 'Cleanup'; Clear-Files $Config @cleanup
             }
             $adapters = @{}
             foreach ($role in 'src', 'fmt', 'dst') {

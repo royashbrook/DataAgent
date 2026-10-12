@@ -10,6 +10,8 @@ runtime values: any string that is exactly `env:NAME`, at any depth, is replaced
 
 the runner loads Add-PrefixForLogging, optionally calls Clear-Files with `purgefiles` / `keepdays`, then runs source -> formatter -> destinations. no records means `No data available`, no file and no send. destinations run in order; a failure stops the job. ordinary output and `l` messages append to `yyyyMMdd.log` and the screen. terminating errors are logged and rethrown.
 
+`filename_date_format`, when present, passes to Clear-Files `-FilenameDateFormat` during that same cleanup step. use `yyyyMMdd` or `yyyy-MM-dd` for fixed-width day prefixes. omission keeps filesystem LastWriteTime behavior. filename mode retains the cutoff day (local today minus keepdays), ignores a time suffix, and never falls back to mtime for an invalid filename date. patterns and keepdays still apply. invalid format/config stops the job before removal. Clear-Files owns this behavior, not a DataAgent parser or cache policy.
+
 `directory`, if present, is the path the run works in: its log, relative adapter paths and output all resolve there. give an absolute path; a relative one resolves against the caller's current location, not the job. leave it out and the run works in the calling script's directory. set it when another module wraps the runner and makes the call, since that module's own file would otherwise be the caller.
 
 `file_format`, if present, is formatted with the run's current date and overrides `fmt.args.Path`. otherwise supply Path yourself. the configured filename goes to the formatter and destinations, not a FileInfo object. built-ins write directly and overwrite. use a dedicated job directory without overlapping workers.
@@ -51,7 +53,7 @@ adapters must not change location. the runner moves PowerShell's location, not t
 
 ## dependencies and limits
 
-the runner does not install dependencies. every helper is imported at a pinned version, the one the tests ran against: Add-PrefixForLogging 1.0.0.3, Clear-Files 1.0.0.0, SqlServer 22.4.5.1, Send-FileViaEmail 2.0.0.0, ImportExcel 7.8.10, Posh-SSH 4.0.0. install exactly those versions on the runner, only for the helpers the job uses; a newer install beside them changes nothing, a missing pinned version stops the run.
+the runner does not install dependencies. every helper is imported at a pinned version, the one the tests ran against: Add-PrefixForLogging 1.0.0.3, Clear-Files 1.1.0.0, SqlServer 22.4.5.1, Send-FileViaEmail 2.0.0.0, ImportExcel 7.8.10, Posh-SSH 4.0.0. install exactly those versions on the runner, only for the helpers the job uses; a newer install beside them changes nothing, a missing pinned version stops the run.
 
 no cache/deduplication, acknowledgment tracking, retry engine, receipts, scheduler or conditional routing. cleanup remains Clear-Files behavior; choose deliberate patterns in a dedicated output directory. provider limits still apply. before adopting a feed, prove its output/layout, runner identity, dependencies, cleanup and scoped delivery behavior. this brief is not a live-provider test.
 
