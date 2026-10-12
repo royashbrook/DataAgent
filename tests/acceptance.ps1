@@ -32,6 +32,7 @@ function Run($Name, $Config, [switch]$WhatIf) {
 }
 
 Import-Module "$repo/DataAgent/DataAgent.psd1" -Force
+& "$PSScriptRoot/resolver.ps1"
 Assert (@((Get-Module DataAgent).ExportedCommands.Keys) -ceq 'Invoke-DataAgent') 'one public production command'
 $core = (Get-FileHash "$repo/DataAgent/DataAgent.psm1").Hash
 $cfg = Config 'csv'
@@ -337,7 +338,7 @@ foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
 }
 Remove-Module DataAgent -Force
 $env:PSModulePath = (@("$root/staged", $priorModules) -join [IO.Path]::PathSeparator)
-Import-Module DataAgent.Test -RequiredVersion 0.7.3
+Import-Module DataAgent.Test -RequiredVersion 0.7.4
 $result = @(Test-DataAgent)
 Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
 $env:PSModulePath = $priorModules
