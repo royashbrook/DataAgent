@@ -53,6 +53,39 @@ Assert ((Get-Location).Path -eq (Join-Path $root 'csv')) 'module stays in callin
 Assert ((Get-Content "$root/csv/$((Get-Date).ToString('yyyyMMdd')).log" -Raw) -match '\tEnd') 'module appends daily job log'
 Assert (!(Test-Path "$root/csv/*.receipt.json")) 'no receipt artifacts'
 
+$freshName = (Get-Date).Date.AddDays(-11).ToString('yyyyMMdd') + '-fresh.csv'
+'retained by mtime' | Set-Content "$root/csv/$freshName"
+$null = Run 'csv' $cfg
+Assert (Test-Path "$root/csv/$freshName") 'omitted filename format retains fresh-mtime dated file'
+foreach ($format in 'yyyyMMdd', 'yyyy-MM-dd') {
+    $name = 'cleanup-' + $format
+    $c = Config $name
+    $c.filename_date_format = $format
+    $old = (Get-Date).Date.AddDays(-11).ToString($format) + '153000-old.csv'
+    $edge = (Get-Date).Date.AddDays(-10).ToString($format) + '-edge.csv'
+    $null = New-Item -ItemType File "$root/$name/$old"
+    'keep boundary' | Set-Content "$root/$name/$edge"
+    'no fallback' | Set-Content "$root/$name/undated.csv"
+    (Get-Item "$root/$name/undated.csv").LastWriteTime = (Get-Date).AddDays(-90)
+    $null = Run $name $c
+    Assert (!(Test-Path "$root/$name/$old")) "$format forwarded, fresh-mtime zero-byte dated file expires"
+    Assert (Test-Path "$root/$name/$edge") "$format cutoff day retained"
+    Assert (Test-Path "$root/$name/undated.csv") "$format no mtime fallback"
+}
+foreach ($invalid in @('', 'unsupported', $null)) {
+    $name = 'cleanup-invalid-' + [guid]::NewGuid().ToString('N')
+    $c = Config $name
+    $c.filename_date_format = $invalid
+    'keep' | Set-Content "$root/$name/20000101.csv"
+    Refuses { Run $name $c } 'FilenameDateFormat'
+    Assert (Test-Path "$root/$name/20000101.csv") 'explicit invalid filename format refuses before removal'
+}
+$c = Config 'cleanup-blank-days'
+$c.filename_date_format = 'yyyyMMdd'; $c.keepdays = ' '
+'keep' | Set-Content "$root/cleanup-blank-days/20000101.csv"
+Refuses { Run 'cleanup-blank-days' $c } 'nonnegative keepdays'
+Assert (Test-Path "$root/cleanup-blank-days/20000101.csv") 'blank days refuse before removal through runner'
+
 # A module that wraps the runner is the caller, so without directory its own folder is where the run happens.
 Module Wrapper @'
 function Invoke-Wrapper($Config) { Invoke-DataAgent -Config $Config }
@@ -304,7 +337,7 @@ foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
 }
 Remove-Module DataAgent -Force
 $env:PSModulePath = (@("$root/staged", $priorModules) -join [IO.Path]::PathSeparator)
-Import-Module DataAgent.Test -RequiredVersion 0.7.2
+Import-Module DataAgent.Test -RequiredVersion 0.7.3
 $result = @(Test-DataAgent)
 Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
 $env:PSModulePath = $priorModules
