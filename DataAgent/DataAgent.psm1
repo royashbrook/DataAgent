@@ -17,11 +17,7 @@ function Resolve-Setting {
         return $resolved
     }
     # arrays from JSON and lists from a script caller alike
-    if ($Value -is [Collections.IList]) {
-        $resolved = [object[]]::new($Value.Count)
-        for ($i = 0; $i -lt $Value.Count; $i++) { $resolved[$i] = Resolve-Setting $Value[$i] }
-        return ,$resolved
-    }
+    if ($Value -is [Collections.IList]) { return , @(foreach ($item in $Value) { Resolve-Setting $item }) }
     $Value
 }
 
