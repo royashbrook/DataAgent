@@ -1,6 +1,6 @@
 @{
     RootModule = 'DataAgent.psm1'
-    ModuleVersion = '0.7.3'
+    ModuleVersion = '0.7.4'
     GUID = '32662c0b-0a5d-49ac-8c62-8f7ae05f79c0'
     Author = 'Roy Ashbrook'
     Copyright = '(c) 2026 Roy Ashbrook. MIT License.'
@@ -16,7 +16,7 @@
             Tags = @('ETL', 'Data', 'CSV', 'Automation', 'PSEdition_Core', 'Windows', 'Linux', 'MacOS')
             LicenseUri = 'https://github.com/royashbrook/DataAgent/blob/main/LICENSE'
             ProjectUri = 'https://github.com/royashbrook/DataAgent'
-            ReleaseNotes = 'Optional filename_date_format passes to Clear-Files -FilenameDateFormat. Clear-Files is pinned to 1.1.0.0. Omission keeps default filesystem-age cleanup, with placement, patterns and keepdays unchanged.'
+            ReleaseNotes = 'Preserve actual CLR element types during recursive array resolution, avoiding PSObject wrappers rejected by compiled cmdlets such as Invoke-Sqlcmd. Array shape, env/credential resolution and cleanup remain intact.'
         }
     }
 }
