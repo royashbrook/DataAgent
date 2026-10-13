@@ -87,6 +87,48 @@ $c.filename_date_format = 'yyyyMMdd'; $c.keepdays = ' '
 Refuses { Run 'cleanup-blank-days' $c } 'nonnegative keepdays'
 Assert (Test-Path "$root/cleanup-blank-days/20000101.csv") 'blank days refuse before removal through runner'
 
+$c = Config 'cleanup-pattern'
+$c.filename_date_format = 'yyyyMMdd'; $c.filename_date_pattern = '(?<date>[0-9]{8})'
+$old = 'report-' + (Get-Date).Date.AddDays(-11).ToString('yyyyMMdd') + '153000.csv'
+$edge = 'Report' + (Get-Date).Date.AddDays(-10).ToString('yyyyMMdd') + '.csv'
+$null = New-Item -ItemType File "$root/cleanup-pattern/$old"
+foreach($name in @($edge, 'undated.csv', 'report-20000101-copy-20000102.csv')) {
+    'keep' | Set-Content "$root/cleanup-pattern/$name"
+    (Get-Item "$root/cleanup-pattern/$name").LastWriteTime = (Get-Date).AddDays(-90)
+}
+$null = Run 'cleanup-pattern' $c
+Assert (!(Test-Path "$root/cleanup-pattern/$old")) 'pattern forwarded: text prefix and timestamp suffix expire'
+Assert (Test-Path "$root/cleanup-pattern/$edge") 'pattern cutoff day retained through runner'
+Assert (Test-Path "$root/cleanup-pattern/undated.csv") 'pattern no mtime fallback through runner'
+Assert (Test-Path "$root/cleanup-pattern/report-20000101-copy-20000102.csv") 'ambiguous pattern retained through runner'
+
+$c = Config 'cleanup-short-year'
+$c.filename_date_format = 'yyMMdd'; $c.filename_date_pattern = '^report-(?<date>[0-9]{6})\.csv$'
+'old' | Set-Content "$root/cleanup-short-year/report-000229.csv"
+$null = Run 'cleanup-short-year' $c
+Assert (!(Test-Path "$root/cleanup-short-year/report-000229.csv")) 'short year century forwarded through runner'
+
+foreach ($case in @(
+    @{pattern=''; error='FilenameDatePattern'},
+    @{pattern=$null; error='FilenameDatePattern'},
+    @{pattern='('; error='pattern'},
+    @{pattern='(?<Date>[0-9]{8})'; error='named date capture'},
+    @{pattern='[0-9]{8}'; error='named date capture'},
+    @{pattern='(?<date>[0-9]{8})'; error='requires FilenameDateFormat'; noformat=$true}
+)) {
+    $name = 'cleanup-pattern-invalid-' + [guid]::NewGuid().ToString('N')
+    $c = Config $name
+    if (!$case.noformat) { $c.filename_date_format = 'yyyyMMdd' }
+    $c.filename_date_pattern = $case.pattern
+    $c.src.adapter = './source.ps1'; $c.dst = @{adapter='./send.ps1'; args=@{}}
+    'param($Data,$Options); throw "source must not run"' | Set-Content "$root/$name/source.ps1"
+    'param($Data,$Options); throw "destination must not run"' | Set-Content "$root/$name/send.ps1"
+    'keep' | Set-Content "$root/$name/report-20000101.csv"
+    (Get-Item "$root/$name/report-20000101.csv").LastWriteTime = (Get-Date).AddDays(-90)
+    Refuses { Run $name $c } $case.error
+    Assert ((Test-Path "$root/$name/report-20000101.csv") -and !(Test-Path "$root/$name/output.csv")) 'invalid pattern refuses before removal or adapters'
+}
+
 # A module that wraps the runner is the caller, so without directory its own folder is where the run happens.
 Module Wrapper @'
 function Invoke-Wrapper($Config) { Invoke-DataAgent -Config $Config }
@@ -338,7 +380,7 @@ foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
 }
 Remove-Module DataAgent -Force
 $env:PSModulePath = (@("$root/staged", $priorModules) -join [IO.Path]::PathSeparator)
-Import-Module DataAgent.Test -RequiredVersion 0.7.4
+Import-Module DataAgent.Test -RequiredVersion 0.7.5
 $result = @(Test-DataAgent)
 Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
 $env:PSModulePath = $priorModules
