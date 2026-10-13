@@ -3,13 +3,13 @@
 the repeated part of a feed job: get data, format it, send it. use the tools you already use.
 
 ```powershell
-Install-Module DataAgent -RequiredVersion 0.7.4 -Scope CurrentUser
+Install-Module DataAgent -RequiredVersion 0.7.5 -Scope CurrentUser
 ```
 
 ## the job
 
 ```powershell
-Import-Module DataAgent -RequiredVersion 0.7.4
+Import-Module DataAgent -RequiredVersion 0.7.5
 Invoke-DataAgent "$PSScriptRoot/settings.json"
 ```
 
