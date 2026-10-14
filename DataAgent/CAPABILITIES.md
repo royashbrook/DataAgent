@@ -26,6 +26,7 @@ owned options are the keys the adapter interprets itself. other arguments belong
 |---|---|---|
 | `src/sql` | none | `Invoke-Sqlcmd` |
 | `src/csv` | none | `Import-Csv` |
+| `src/cosmos` | `Endpoint`, `Key`, `Database`, `Container`, `Query` or `InputFile`, `Parameters`, `Days`, `Fresh`, `Formats`, `Map`, `Sort`, `Drop` | `Invoke-WebRequest` |
 | `fmt/csv` | `Path`, `Encoding`, `StripQuotes` | `ConvertTo-Csv` |
 | `fmt/xlsx` | `Path` | `Export-Excel` |
 | `fmt/custom` | `Module`, `Path` | `ConvertTo-Custom` |
@@ -36,6 +37,7 @@ owned options are the keys the adapter interprets itself. other arguments belong
 
 - **sql:** arguments pass to Invoke-Sqlcmd, including connection strings and authentication settings. DataTable results emit their rows; empty tables emit nothing. multiple result sets are flattened, not separate artifacts. use compatible schemas.
 - **csv source:** arguments pass directly to Import-Csv. relative paths resolve in the job directory.
+- **cosmos source:** a cosmos sql query over rest with the account key (Key, usually `env:`), no sdk needed. Endpoint is the account url, Database and Container name the collection. the query is Query, or InputFile read from the job directory. Parameters is a hashtable of `@name` to value, and the source adds `@day` (AS_OF, or yesterday), with `@from` and `@to` the Days days (1 by default) ending with it, half open, when the query uses them. Fresh `{ Query, MaxAgeHours }` stops the run when the query's one value, a utc time, is older than that. every page is read and each record keeps its values as stored (an iso date stays a string). cosmos leaves a missing value out of a record, so every record gets every column any record has, empty when missing; write `?? ""` in the query to keep a column that no record has. then Formats `{ column: .net date format }` writes a column of stored dates, Map `{ column: { code: name } }` swaps a trimmed code for a name and keeps the code when it has none, Sort orders by columns, and Drop removes columns that were only there to sort on. the rest gateway serves no aggregates and no cross-partition order by, so sort here, not in the query.
 - **csv format:** Path is the output; Encoding defaults to utf8NoBOM. all remaining arguments pass to ConvertTo-Csv, including Delimiter, UseQuotes and NoHeader. StripQuotes removes *every* double quote, including data. unquoted modes can lose meaning with commas/newlines. source column order is retained.
 - **xlsx:** all arguments pass to Export-Excel, including Path and layout options. an existing file at Path is replaced, never written into, so a shorter run leaves no rows from the last one. verify cells/layout, not ZIP hashes. AutoSize may need native support on non-Windows hosts.
 - **custom format bridge:** Module is a path to a module exporting `ConvertTo-Custom($dt)`. the bridge passes a DataTable and saves returned text to Path as UTF-8 without BOM. this bridge is for existing text converters, not binary ZIP output.
