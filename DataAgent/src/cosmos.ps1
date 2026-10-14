@@ -1,3 +1,5 @@
+#requires -Version 7.5
+# 7.5 for ConvertFrom-Json -DateKind; the rest of DataAgent runs on 7.4
 param($Data, [hashtable] $Options)
 # a cosmos sql query over rest with the account key, one post per page: no sdk on the runner
 $link = "dbs/$($Options.Database)/colls/$($Options.Container)"
