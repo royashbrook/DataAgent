@@ -30,6 +30,9 @@ owned options are the keys the adapter interprets itself. other arguments belong
 | `fmt/csv` | `Path`, `Encoding`, `StripQuotes` | `ConvertTo-Csv` |
 | `fmt/xlsx` | `Path` | `Export-Excel` |
 | `fmt/custom` | `Module`, `Path` | `ConvertTo-Custom` |
+| `fmt/pdi` | `Path`, `Values`, `Key`, `Head`, `Type`, `H`, `D`, `I` | none |
+| `fmt/x12-210` | `Path`, `Values`, `Key`, `Detail`, `Head`, `Invoice`, `Line`, `Close`, `Se`, `SeExtra`, `Tail` | none |
+| `fmt/dtn` | `Path`, `Values`, `Head`, `Start`, `Open`, `Header`, `Detail`, `Line`, `Close`, `Tail` | none |
 | `dst/email` | none | `Send-FileViaEmail` |
 | `dst/sftp` | `connect`, `send`, `attempts`, `delay` | `New-SFTPSession`, `Set-SFTPItem` |
 | `dst/ftp` | `Uri`, `Credential` | `FtpWebRequest` |
@@ -41,11 +44,14 @@ owned options are the keys the adapter interprets itself. other arguments belong
 - **csv format:** Path is the output; Encoding defaults to utf8NoBOM. all remaining arguments pass to ConvertTo-Csv, including Delimiter, UseQuotes and NoHeader. StripQuotes removes *every* double quote, including data. unquoted modes can lose meaning with commas/newlines. source column order is retained.
 - **xlsx:** all arguments pass to Export-Excel, including Path and layout options. an existing file at Path is replaced, never written into, so a shorter run leaves no rows from the last one. verify cells/layout, not ZIP hashes. AutoSize may need native support on non-Windows hosts.
 - **custom format bridge:** Module is a path to a module exporting `ConvertTo-Custom($dt)`. the bridge passes a DataTable and saves returned text to Path as UTF-8 without BOM. this bridge is for existing text converters, not binary ZIP output.
+- **invoice formats:** pdi writes H/D/I records; x12-210 writes an interchange with one transaction per invoice; dtn takes one object per invoice with nested Detail records. baseline templates ship in fmt/invoice/*.psd1. Values supplies company identifiers, addresses, terms and other constants. every template or field selector can be overridden by its listed option. substitutions support `{field}`, `{a.b}`, `{field,-15}` and `{field:0.00}`. Values wins over row fields. missing fields become empty, values are not escaped or truncated, and an alignment width is a minimum. these are configured layouts, not general CSV quoting or X12/DTN certification. prove the receiver's exact bytes before adoption. x12-210 defaults ISA ids to 15-wide, YYMMDD, a 9-digit interchange number and matching IEA; GS/GE use the same unpadded group number. ST/SE and segment counts are generated; SeExtra permits an explicit legacy count offset. the default control number is the extracted hour-of-year convention, not uniqueness across jobs or reruns. Values.now and Values.control can supply a filing time and number instead. dtn Values.dtn supplies user/pass/site for the file's login block; keep those values in env: variables, not committed config. its Header and Line are column templates, so a numeric precision variant needs no alternate formatter.
 - **email:** one filename, one Send-FileViaEmail call with `file` supplied by the adapter. other arguments pass through, such as `cfg` and `contentType`. multiple filenames throw before sending, never fan out. use a filename in the job directory: the helper uses it as both path and attachment name. no body/multi-attachment API or new size policy is provided here.
 - **sftp:** connect is splatted to New-SFTPSession, send to Set-SFTPItem. the adapter supplies the session and local Path; the session closes even on failure. a connect that fails is tried again, up to `attempts` tries in all (3) `delay` seconds apart (60), and the last error is the one thrown. choose the intended host-key/overwrite policy. connection Force bypasses host-key validation; prefer verified trusted hosts.
 - **ftp / ftps:** independent scripts. Uri is a remote directory (`ftp://host/path/`); Credential is a PSCredential or .NET NetworkCredential. uploads replace normally. FTPS uses explicit TLS, not implicit FTPS. plain FTP sends credentials and data unencrypted.
 
 ## custom adapters
+
+invoice substitutions without a format preserve PowerShell's string interpolation, including dates and numbers. alignment pads that string. an explicit `:format` instead formats the original typed value using .NET's current-culture formatting.
 
 set `adapter` to a `.ps1` path, relative to the job directory or absolute. no registration or core edit. each script receives `-Data` and `-Options`:
 

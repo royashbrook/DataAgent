@@ -17,9 +17,11 @@ that is the whole job's `.ps1`. the run works in the settings file's folder. a s
 
 ## what it supports
 
-read the [capability brief](DataAgent/CAPABILITIES.md) for the config contract, all ten built-in adapters, owned options versus helper pass-throughs, custom scripts, dependencies and limits. the same file ships in the gallery module, so an agent or person can inspect the installed contract without reading code or running a job.
+read the [capability brief](DataAgent/CAPABILITIES.md) for the config contract, all thirteen built-in adapters, owned options versus helper pass-throughs, custom scripts, dependencies and limits. the same file ships in the gallery module, so an agent or person can inspect the installed contract without reading code or running a job.
 
 the runner sets location to the settings file's folder, the calling script's directory, or the config's `directory` (for a module that wraps the runner), logs to screen and `yyyyMMdd.log`, cleans up when configured, then gets, formats and sends. empty results send nothing. `-WhatIf` skips the whole run. custom adapters need no core edit.
+
+[invoice-settings.json](examples/invoice-settings.json) shows a format-only PDI job. its input uses the fields named in [the baseline templates](DataAgent/fmt/invoice/). settings supply constants through Values and override only the templates or selectors that differ. pdi and x12-210 take flat rows; dtn takes invoice objects with nested Detail arrays. prove a receiver's exact layout before adding a destination.
 
 **0.4 is a breaking change from 0.3.** use `Invoke-DataAgent -Config` and src/fmt/dst. Pipeline/Extract/Transform/Deliver and provider/receipt helpers are removed. installation does not migrate jobs.
 

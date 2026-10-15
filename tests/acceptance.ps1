@@ -371,6 +371,7 @@ Remove-Item Env:DATAAGENT_TEST_SOURCE, Env:DATAAGENT_TEST_USER
 
 . "$PSScriptRoot/transfers.ps1"
 . "$PSScriptRoot/cosmos.ps1"
+& "$PSScriptRoot/invoice-formats.ps1"
 
 foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
     $name = Split-Path $package -Leaf
