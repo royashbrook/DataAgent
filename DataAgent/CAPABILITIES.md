@@ -30,8 +30,8 @@ owned options are the keys the adapter interprets itself. other arguments belong
 | `fmt/csv` | `Path`, `Encoding`, `StripQuotes` | `ConvertTo-Csv` |
 | `fmt/xlsx` | `Path` | `Export-Excel` |
 | `fmt/custom` | `Module`, `Path` | `ConvertTo-Custom` |
-| `fmt/pdi` | `Path`, `Values`, `Key`, `Head`, `Type`, `H`, `D`, `I` | none |
-| `fmt/x12-210` | `Path`, `Values`, `Key`, `Detail`, `Head`, `Invoice`, `Line`, `Close`, `Se`, `SeExtra`, `Tail` | none |
+| `fmt/pdi` | `Path`, `Values`, `Key`, `Head`, `Type`, `H`, `D`, `I`, `Footer` | none |
+| `fmt/x12-210` | `Path`, `Values`, `Key`, `Detail`, `Head`, `Invoice`, `Line`, `Close`, `Se`, `SeExtra`, `Tail`, `Control`, `Dates`, `Separator`, `Terminator`, `SeDetailCount` | none |
 | `fmt/dtn` | `Path`, `Values`, `Head`, `Start`, `Open`, `Header`, `Detail`, `Line`, `Close`, `Tail` | none |
 | `dst/email` | none | `Send-FileViaEmail` |
 | `dst/sftp` | `connect`, `send`, `attempts`, `delay` | `New-SFTPSession`, `Set-SFTPItem` |
@@ -50,6 +50,18 @@ owned options are the keys the adapter interprets itself. other arguments belong
 - **ftp / ftps:** independent scripts. Uri is a remote directory (`ftp://host/path/`); Credential is a PSCredential or .NET NetworkCredential. uploads replace normally. FTPS uses explicit TLS, not implicit FTPS. plain FTP sends credentials and data unencrypted.
 
 ## custom adapters
+
+### text frames and invoice variants
+
+`fmt.Prepend` and `fmt.Append` are line templates outside `fmt.args`, so they do not leak into helper splats. the runner adds them after formatting and before any destination. this is text-only, using args.Encoding or utf8NoBOM; XLSX and ZIP paths refuse. custom binary outputs must not use framing. no framing keys means no extra file read/write.
+
+frames support the same substitutions as invoices, with fields from the first source row, `now` and `sum`. `fmt.Sum` maps a name to `{ Property: 'amount', UniqueBy: 'invoice_id' }`. `UniqueBy` is optional: supplied means take the first row of each group before summing, omitted means sum all rows. sums cast values to decimal like the extracted report. keep repeated invoice totals out of an all-row sum. for example Prepend `['run {now:f}', 'total {sum.total:0.00}']` and Sum `{ total: { Property: 'amount', UniqueBy: 'invoice_id' } }`. invoice args.Values.now can supply the filing clock for the invoice and its frame; JSON ISO date strings are accepted. other formats use the current clock, or a dated source field in a template.
+
+pdi `Footer` is a line after each invoice, using that invoice's header fields. an empty H omits the header. an empty Type sends all detail rows through D. together these let a configured line-per-charge layout have one invoice total without a new formatter. defaults still select d/i and write H/D/I.
+
+x12 template entries can stay strings or use `{ Text: ['N9*{ref}', 'L0*{qty}'], When: { Field: 'kind', Is: 'A', Not: true } }`. Is compares strings case-insensitively. without Is, a nonempty value matches. Not negates the test. conditions read the row; skipped segments do not count toward SE. Separator replaces literal `*` in templates before substitutions, never stars in data values. Terminator is appended to each emitted X12 segment. use outer text frames for non-X12 front matter.
+
+x12 Control is a template: omit it for the existing hour-of-year scheme, use `1{now:yyMMdd}00` for a date scheme or `{now:yy}{day:000}{now:HHmm}` for day-of-year and time. Values.control still overrides the result. Dates maps names to day offsets, for example `{ due: 7 }` then `{dates.due:yyyyMMdd}`. the filing clock drives all derived values. existing Se and Tail templates already handle padded counts and fixed GE fields. SeExtra adds a legacy count offset. optional SeDetailCount replaces the counted detail-segment total with that fixed number per detail row; it is an explicit legacy receiver quirk, not the default or a standards claim.
 
 invoice groups keep their first-seen order, and each invoice's details keep their input order. the source owns any sorting. pdi no longer sorts invoices by key or moves D records before I records. grouping still puts an invoice's rows together if the source interleaves invoice keys.
 

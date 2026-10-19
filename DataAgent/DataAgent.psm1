@@ -68,6 +68,10 @@ function Invoke-DataAgent {
             if ($Config.file_format) { $options.Path = $Config.file_format -f (Get-Date) }
             $file = $options.Path
             & ($adapters.fmt[0]) -Data $data -Options $options
+            if ($null -ne $Config.fmt.Prepend -or $null -ne $Config.fmt.Append) {
+                . "$PSScriptRoot/fmt/text/frame.ps1"
+                Add-FormatFrame $Config.fmt $data $options
+            }
             l 'Use Data'
             for ($i = 0; $i -lt $adapters.dst.Count; $i++) { & ($adapters.dst[$i]) -Data $file -Options @($Config.dst)[$i].args }
             l 'End'

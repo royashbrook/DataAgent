@@ -10,6 +10,7 @@ try {
     $installed = "$root/saved/DataAgent/$version"
     & "$PSScriptRoot/capabilities.ps1" -ModulePath $installed
     & "$PSScriptRoot/invoice-formats.ps1" -ModulePath $installed
+    & "$PSScriptRoot/partner-options.ps1" -ModulePath $installed
     if ((Get-FileHash "$installed/CAPABILITIES.md").Hash -ne (Get-FileHash "$PSScriptRoot/../DataAgent/CAPABILITIES.md").Hash) { throw 'packaged brief differs' }
     "PASS: published and saved package contains the exact brief ($version)"
 } finally {
