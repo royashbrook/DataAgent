@@ -51,6 +51,8 @@ owned options are the keys the adapter interprets itself. other arguments belong
 
 ## custom adapters
 
+invoice groups keep their first-seen order, and each invoice's details keep their input order. the source owns any sorting. pdi no longer sorts invoices by key or moves D records before I records. grouping still puts an invoice's rows together if the source interleaves invoice keys.
+
 invoice substitutions without a format preserve PowerShell's string interpolation, including dates and numbers. alignment pads that string. an explicit `:format` instead formats the original typed value using .NET's current-culture formatting.
 
 set `adapter` to a `.ps1` path, relative to the job directory or absolute. no registration or core edit. each script receives `-Data` and `-Options`:

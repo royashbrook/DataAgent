@@ -35,14 +35,18 @@ $null = $table.Rows.Add(@('A','20261014','3','i','','C','','','1','0','1','1','F
 $null = $table.Rows.Add(@('A','20261014','3','d','A1','C','DSL','','1','2','2','2','FRT'))
 $lines = Format pdi @($table.Rows) @{Values=@{sender_id='SYN'}}
 $expected = @(
-    '"H","SYN","A","20261014",,,,,,"3","N"'
-    '"D","A1","C","DSL","","SYN",,"1","2","2",,"2",'
-    '"I","FSC","1",'
     '"H","SYN","B","20261014",,,,,,"2","N"'
     '"D","B1","C","DSL","note, one","SYN",,"1","2","2",,"2",'
+    '"H","SYN","A","20261014",,,,,,"3","N"'
+    '"I","FSC","1",'
+    '"D","A1","C","DSL","","SYN",,"1","2","2",,"2",'
 )
 $expected | Set-Content "$root/expected.txt" -Encoding utf8NoBOM
-Check ((Get-FileHash "$root/pdi.txt").Hash -ceq (Get-FileHash "$root/expected.txt").Hash) 'pdi DataRow input has exact H/D/I bytes, sorted invoices and D before I'
+Check ((Get-FileHash "$root/pdi.txt").Hash -ceq (Get-FileHash "$root/expected.txt").Hash) 'pdi preserves first-seen invoice order and interleaved detail order byte for byte'
+$lines = Format pdi @($table.Rows[2], $table.Rows[1], $table.Rows[0]) @{Values=@{sender_id='SYN'}}
+Check (($lines -join '|') -ceq (($expected[2], $expected[4], $expected[3], $expected[0], $expected[1]) -join '|')) 'pdi already-sorted invoices and D-before-I input remain unchanged'
+$lines = Format pdi @($table.Rows) @{Values=@{sender_id='SYN'};I=''}
+Check (($lines -join '|') -ceq (($expected[0], $expected[1], $expected[2], $expected[4]) -join '|')) 'pdi can still omit I records without reordering the rest'
 $lines = Format pdi @([pscustomobject]@{id='A';kind='d';amount=2}) @{Key='id';Head='id';Type='kind';H='H,{id}';D='D,{amount:0.00}';I=''}
 Check (($lines -join '|') -ceq 'H,A|D,2.00') 'pdi record selectors and whole templates can be replaced'
 
