@@ -3,6 +3,8 @@
 function Get-InvoiceOptions($Overrides, $Name) {
     $options = Import-PowerShellDataFile "$PSScriptRoot/$Name.psd1"
     foreach ($key in $Overrides.Keys) { $options[$key] = $Overrides[$key] }
+    $options.Values = @{} + $options.Values
+    $options.Values.now = if ($options.Values.ContainsKey('now')) { [datetime]$options.Values.now } else { Get-Date }
     $options
 }
 

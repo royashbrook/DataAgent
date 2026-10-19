@@ -2,6 +2,11 @@
     Key = 'b302'
     Detail = @('l5*', 'l0*', 'l1*')
     Values = @{}
+    Control = ''
+    Dates = @{}
+    Separator = '*'
+    Terminator = ''
+    SeDetailCount = $null
     Head = @(
         'ISA*00*          *00*          *02*{sender_id,-15}*ZZ*{receiver_id,-15}*{now:yyMMdd}*{now:HHmm}*U*00401*{control:000000000}*0*P*>'
         'GS*IM*{sender_id}*{receiver_id}*{now:yyyyMMdd}*{now:HHmm}*{control}*X*004010'
