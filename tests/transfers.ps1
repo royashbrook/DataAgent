@@ -75,3 +75,29 @@ Assert ([TestFtpFactory]::Requests[-1].EnableSsl) 'FTPS selector enables TLS wit
 [TestFtpRequest]::Fail=$true
 Refuses { Run 'ftp' $cfg } 'transfer failed'
 Assert ([TestFtpFactory]::Requests[-1].Aborted) 'FTP releases request after failure'
+
+# the http boundary is replaced for this process only; a function wins over the cmdlet of the same name
+$global:httpPosts = [Collections.Generic.List[object]]::new()
+$global:httpRefuse = $false
+function global:Invoke-RestMethod {
+    param($Method, $Uri, $Headers, $Body, $ContentType)
+    if ($global:httpRefuse) { throw 'Response status code does not indicate success: 400 (Bad Request).' }
+    $global:httpPosts.Add(@{ Method = $Method; Uri = $Uri; Headers = $Headers; Body = $Body; ContentType = $ContentType }); 'accepted'
+}
+$env:DATAAGENT_TEST_KEY = 'synthetic key'
+$cfg = Config 'http'
+$cfg.dst = @{ adapter = 'http'; args = @{ uri = 'https://dataagent.invalid/upload'; headers = @{ 'Api-Key' = 'env:DATAAGENT_TEST_KEY' }; nameheader = 'filename'; contenttype = 'text/plain' } }
+$log = Run 'http' $cfg
+$post = $global:httpPosts[-1]
+Assert ($post.Method -eq 'Post' -and $post.Uri -eq 'https://dataagent.invalid/upload' -and $post.ContentType -eq 'text/plain') 'http posts to the uri with the content type'
+Assert ($post.Headers['Api-Key'] -eq 'synthetic key' -and $post.Headers.filename -eq 'output.csv') 'http headers resolve env: and carry the file name'
+Assert ($post.Body -eq (Get-Content "$root/http/output.csv" -Raw)) 'http body is the file text'
+Assert (($log -join "`n") -match 'Response: accepted' -and ($log -join "`n") -notmatch 'synthetic key') 'http logs the answer, never the key'
+$cfg.dst.args.Remove('nameheader')
+$null = Run 'http' $cfg
+Assert ($global:httpPosts.Count -eq 2 -and !$global:httpPosts[-1].Headers.ContainsKey('filename')) 'no nameheader, no file name header'
+$global:httpRefuse = $true
+Refuses { Run 'http' $cfg } '400'
+Remove-Item function:global:Invoke-RestMethod
+Remove-Variable httpPosts, httpRefuse -Scope Global
+Remove-Item Env:DATAAGENT_TEST_KEY
