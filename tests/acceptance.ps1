@@ -278,7 +278,7 @@ $null = Run 'xlsx' $cfg
 Assert (@(Import-Excel "$root/xlsx/output.xlsx").Count -eq 1) 'XLSX replaces the file: a shorter run leaves none of the last run''s rows'
 
 # The real email helper runs; only its HTTP boundary is replaced in this process.
-Import-Module Send-FileViaEmail -RequiredVersion 2.0.0.0
+Import-Module Send-FileViaEmail -RequiredVersion 2.1.0.0
 & (Get-Module Send-FileViaEmail) {
     $script:messages = [Collections.Generic.List[object]]::new()
     function script:Invoke-RestMethod {
@@ -302,6 +302,11 @@ Assert (($log -join "`n") -notmatch 'synthetic secret|synthetic connection') 'ru
 Refuses { & "$repo/DataAgent/dst/email.ps1" -Data @('one.csv','two.csv') -Options $cfg.dst.args } 'one file'
 Assert (@(& (Get-Module Send-FileViaEmail) { $script:messages.ToArray() }).Count -eq 1) 'multiple files refused before any email'
 Assert ((Get-Location).Path -eq (Join-Path $root 'email')) 'email does not change directory'
+$cfg = Config 'email-body'
+$cfg.dst = @{ adapter = 'email'; args = @{ bodyType = 'Html'; cfg = @{ msgraph = @{ tenant_id = 'example'; client_id = 'example'; client_secret = 'synthetic secret' }; mail = @{ from = 'from@example.invalid'; to = @('to@example.invalid'); subject = 'report' } } } }
+$null = Run 'email-body' $cfg
+$body = @(& (Get-Module Send-FileViaEmail) { $script:messages.ToArray() })[-1].message
+Assert ($body.body.contentType -eq 'Html' -and $body.body.content -eq (Get-Content "$root/email-body/output.csv" -Raw) -and !$body.attachments) 'bodyType passes through: the file is the message body'
 
 $cfg = Config 'extension'
 @'
@@ -383,7 +388,7 @@ foreach ($package in @('DataAgent','testing/DataAgent.Test')) {
 }
 Remove-Module DataAgent -Force
 $env:PSModulePath = (@("$root/staged", $priorModules) -join [IO.Path]::PathSeparator)
-Import-Module DataAgent.Test -RequiredVersion 0.10.0
+Import-Module DataAgent.Test -RequiredVersion 0.11.0
 $result = @(Test-DataAgent)
 Assert (@($result | Where-Object { $_ -is [IO.FileInfo] -and $_.Name -eq 'output.csv' }).Count -eq 1) 'staged optional test package exercises bundled formatter'
 $env:PSModulePath = $priorModules
