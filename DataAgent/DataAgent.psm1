@@ -62,6 +62,27 @@ function Invoke-DataAgent {
             }
             l 'Get Data'
             $data = @(& ($adapters.src[0]) -Data @() -Options $Config.src.args | Where-Object { $null -ne $_ })
+            if ($data.Count -and $Config.sent) {
+                $sent = $Config.sent
+                $receipts = if ($sent.path) { $sent.path } else { 'sent' }
+                $columns = if ($data[0] -is [Data.DataRow]) { $data[0].Table.Columns.ColumnName } else { $data[0].PSObject.Properties.Name }
+                $fields = if ($sent.key) { @($sent.key) } else { @($columns) }
+                # a missing key column would make every row the same row, and after one send nothing goes again
+                foreach ($field in $fields) { if ($field -notin $columns) { throw "sent.key '$field' is not a column of the source." } }
+                $went = [Collections.Generic.HashSet[string]]::new()
+                foreach ($receipt in Get-ChildItem -LiteralPath $receipts -Filter *.txt -File -ErrorAction Ignore) {
+                    # the name dates a receipt, not its mtime: a fresh checkout stamps every file now
+                    if ($sent.keep_days -and [datetime]::ParseExact($receipt.Name.Substring(0, 8), 'yyyyMMdd', $null) -lt (Get-Date).Date.AddDays(-[int]$sent.keep_days)) {
+                        Remove-Item -LiteralPath $receipt.FullName; continue
+                    }
+                    # read back through csv so a value with a line break or other quoting compares the same
+                    foreach ($line in Import-Csv -LiteralPath $receipt.FullName -Header $fields | ConvertTo-Csv -NoHeader -UseQuotes AsNeeded) { $null = $went.Add($line) }
+                }
+                $lines = @($data | Select-Object $fields | ConvertTo-Csv -NoHeader -UseQuotes AsNeeded)
+                $new = @(for ($i = 0; $i -lt $data.Count; $i++) { if (!$went.Contains($lines[$i])) { $i } })
+                l "Sent before: $($data.Count - $new.Count) of $($data.Count) row(s) skipped"
+                $data = @(foreach ($i in $new) { $data[$i] }); $lines = @(foreach ($i in $new) { $lines[$i] })
+            }
             if (!$data.Count) { l 'No data available'; return }
             l 'Data Found. Formatting File.'
             $options = if ($Config.fmt.args) { @{} + $Config.fmt.args } else { @{} }
@@ -74,6 +95,13 @@ function Invoke-DataAgent {
             }
             l 'Use Data'
             for ($i = 0; $i -lt $adapters.dst.Count; $i++) { & ($adapters.dst[$i]) -Data $file -Options @($Config.dst)[$i].args }
+            # only after every destination returned; a format-only run sent nothing, so it marks nothing
+            if ($Config.sent -and $adapters.dst.Count) {
+                $null = New-Item -ItemType Directory -Force -Path $receipts
+                $receipt = Join-Path $receipts ('{0:yyyyMMddHHmmss}.txt' -f (Get-Date))
+                $lines | Sort-Object -Unique | Set-Content -LiteralPath $receipt
+                l "Receipt: $receipt"
+            }
             l 'End'
         } *>&1 | Tee-Object -Append $log
     } catch {

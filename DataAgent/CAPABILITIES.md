@@ -16,6 +16,8 @@ the runner loads Add-PrefixForLogging, optionally calls Clear-Files with `purgef
 
 `directory`, if present, is the path the run works in: its log, relative adapter paths and output all resolve there. give an absolute path; a relative one resolves against the caller's current location, not the job. leave it out and the run works in the calling script's directory. set it when another module wraps the runner and makes the call, since that module's own file would otherwise be the caller.
 
+`sent`, if present, sends each row once. `{ key, path, keep_days }`: `key` is a column or a list of columns, and with no key the whole row is the key, so an edited row goes again. rows whose key a receipt already names are dropped after the source, and the log says how many. if none are left, that is `No data available`. a receipt is one csv line per key, written to `path` (default `sent`, in the job directory) as `yyyyMMddHHmmss.txt`, only after every destination returned. a failed send or a format-only run marks nothing. `keep_days` removes a receipt once the date in its name is older than that many days, and its rows can go again. without it, receipts are kept. a key column the source does not return stops the run, since it would make every row the same row. receipts are files, so a job that runs on fresh checkouts has to commit them back.
+
 `file_format`, if present, is formatted with the run's current date and overrides `fmt.args.Path`. otherwise supply Path yourself. the configured filename goes to the formatter and destinations, not a FileInfo object. built-ins write directly and overwrite. use a dedicated job directory without overlapping workers.
 
 ## built-ins
@@ -81,7 +83,7 @@ adapters must not change location. the runner moves PowerShell's location, not t
 
 the runner does not install dependencies. every helper is imported at a pinned version, the one the tests ran against: Add-PrefixForLogging 1.0.0.3, Clear-Files 1.2.0.0, SqlServer 22.4.5.1, Send-FileViaEmail 2.1.0.0, ImportExcel 7.8.10, Posh-SSH 4.0.0. install exactly those versions on the runner, only for the helpers the job uses; a newer install beside them changes nothing, a missing pinned version stops the run.
 
-no cache/deduplication, acknowledgment tracking, retry engine, receipts, scheduler or conditional routing. cleanup remains Clear-Files behavior; choose deliberate patterns in a dedicated output directory. provider limits still apply. before adopting a feed, prove its output/layout, runner identity, dependencies, cleanup and scoped delivery behavior. this brief is not a live-provider test.
+no cache beyond `sent` receipts, no acknowledgment tracking, retry engine, scheduler or conditional routing. a receipt means a destination returned, not that the receiver processed the file. cleanup remains Clear-Files behavior; choose deliberate patterns in a dedicated output directory. provider limits still apply. before adopting a feed, prove its output/layout, runner identity, dependencies, cleanup and scoped delivery behavior. this brief is not a live-provider test.
 
 0.4 replaces the old Pipeline/Extract/Transform/Deliver API with Config and src/fmt/dst. installation does not migrate jobs. optional synthetic exercises are in DataAgent.Test, not production mock modes.
 
