@@ -89,16 +89,22 @@ foreach ($s in 0..30) { 'earlier' | Set-Content ("$root/sent-second/sent/{0:yyyy
 $null = Run 'sent-second' $cfg
 Assert (@(Get-ChildItem "$root/sent-second/sent" | Where-Object { @(Get-Content $_.FullName)[0] -ne 'earlier' }).Count -eq 0) 'a same-second receipt is appended to, not replaced'
 
-# keys that differ only by case are different keys, both recorded and both skipped after
+# keys that differ only by case, or by unicode form (e-acute vs e + combining acute), are different
+# keys, all recorded and all skipped after
 $cfg = Config 'sent-case'
 $dst | Set-Content "$root/sent-case/dst.ps1"
-@([pscustomobject]@{ Id = 'abc'; Description = 'lower' }, [pscustomobject]@{ Id = 'ABC'; Description = 'upper' }) | Export-Csv "$root/sent-case/case.csv"
+@(
+    [pscustomobject]@{ Id = 'abc'; Description = 'lower' }
+    [pscustomobject]@{ Id = 'ABC'; Description = 'upper' }
+    [pscustomobject]@{ Id = "caf$([char]0x00E9)"; Description = 'composed' }
+    [pscustomobject]@{ Id = "cafe$([char]0x0301)"; Description = 'decomposed' }
+) | Export-Csv "$root/sent-case/case.csv"
 $cfg.src.args.LiteralPath = "$root/sent-case/case.csv"
 $cfg.dst = @{ adapter = './dst.ps1'; args = @{} }
 $cfg.sent = @{ key = 'Id' }
 $null = Run 'sent-case' $cfg
 $null = Run 'sent-case' $cfg
-Assert ((Sends 'sent-case') -join ',' -eq '2' -and @(Get-Content (Receipts 'sent-case')[0].FullName).Count -eq 2) 'case-distinct keys both recorded, nothing sent twice'
+Assert ((Sends 'sent-case') -join ',' -eq '4' -and @(Get-Content (Receipts 'sent-case')[0].FullName).Count -eq 4) 'case and unicode-form distinct keys all recorded, nothing sent twice'
 
 # a key that is not a column would skip everything after one send, so it stops the run
 $cfg = Config 'sent-missing'

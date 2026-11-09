@@ -99,9 +99,9 @@ function Invoke-DataAgent {
             if ($Config.sent -and $adapters.dst.Count) {
                 $null = New-Item -ItemType Directory -Force -Path $receipts
                 $receipt = Join-Path $receipts ('{0:yyyyMMddHHmmss}.txt' -f (Get-Date))
-                # append: a run in the same second must not replace the receipt before it. case-sensitive,
-                # like the compare, or a key that differs only by case is dropped here and sent again
-                $lines | Sort-Object -Unique -CaseSensitive | Add-Content -LiteralPath $receipt
+                # append: a run in the same second must not replace the receipt before it. distinct is
+                # ordinal, like the compare: a culture or case fold here drops a key that then goes again
+                [Linq.Enumerable]::Distinct([string[]]$lines) | Add-Content -LiteralPath $receipt
                 l "Receipt: $receipt"
             }
             l 'End'
