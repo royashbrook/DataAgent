@@ -1,6 +1,6 @@
 @{
     RootModule = 'DataAgent.psm1'
-    ModuleVersion = '0.11.0'
+    ModuleVersion = '0.12.0'
     GUID = '32662c0b-0a5d-49ac-8c62-8f7ae05f79c0'
     Author = 'Roy Ashbrook'
     Copyright = '(c) 2026 Roy Ashbrook. MIT License.'
