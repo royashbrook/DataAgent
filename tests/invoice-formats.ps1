@@ -77,6 +77,33 @@ $lines = Format x12-210 $rows @{Values=$variant;Head=@('ISA*{sender_id,-10}*000{
 Check ($lines[0] -ceq 'ISA*SYN       *000260123' -and $lines[1] -ceq 'GS*000260123' -and $lines[-1] -ceq 'IEA*1*260123') 'legacy width and inconsistent prefix stay explicit template overrides'
 Check (@($lines | Where-Object { $_ -ceq 'SE*24*000000001' }).Count -eq 1) 'a legacy count offset is explicit, not the default'
 
+# One key with two headers used to write the invoice twice, each copy with every line. refs #38.
+function Rejects($Name, $Rows, $Options, $Field, $Case) {
+    $Options.Path = "$root/reject-$Name-$script:checks.txt"
+    $message = try { & "$ModulePath/fmt/$Name.ps1" -Data $Rows -Options $Options; '' } catch { "$_" }
+    Check ($message -like "*key 'A'*" -and $message -like "*$Field*") "$Name $Case fails, naming the key and the field"
+    Check (!(Test-Path -LiteralPath $Options.Path)) "$Name $Case leaves no file"
+}
+function Copy-Rows($Rows) { foreach ($row in $Rows) { $row | Select-Object * } }
+$clash = @(Copy-Rows $rows); $clash[1].b303 = 'B9'
+Rejects x12-210 $clash @{Values=$values} b303 'a header field that differs under one key'
+$clash = @(Copy-Rows $rows | Select-Object *, unused); $clash[1].unused = 'x'
+Rejects x12-210 $clash @{Values=$values} unused 'a column no template uses, differing under one key'
+$clash = @(Copy-Rows $rows); $clash[2].b302 = 'a'
+Rejects x12-210 $clash @{Values=$values} b302 'keys that differ only by case'
+$clash = @(Copy-Rows $rows); $clash[1].l507 = 'OTHER'
+$plain = (Format x12-210 $rows @{Values=$values}) -join '|'
+Check (((Format x12-210 $clash @{Values=$values}) -join '|') -ceq $plain.Replace('*FUEL', '*OTHER')) 'x12-210 detail fields may still differ under one key'
+$flat = @(
+    [pscustomobject]@{id='A';bol='B1';kind='d';amount=1;note='one'}
+    [pscustomobject]@{id='A';bol='B1';kind='d';amount=2;note='two'}
+    [pscustomobject]@{id='B';bol='B1';kind='d';amount=3;note='one'}
+)
+$layout = @{Key='id';Head=@('id','bol');Type='kind';H='H,{id},{bol}';D='D,{amount}';I=''}
+Check (((Format pdi $flat (@{} + $layout)) -join '|') -ceq 'H,A,B1|D,1|D,2|H,B,B1|D,3') 'pdi fields outside Head may still differ under one key'
+$clash = @(Copy-Rows $flat); $clash[1].bol = 'B9'
+Rejects pdi $clash (@{} + $layout) bol 'a Head field that differs under one key'
+
 $invoices = @(
     @{ivh_invoicenumber='A';ivh_billdate='20261014';ivh_totalcharge=3;ShipDate='20261013';ShipTime='0830';Detail=@(@{RecordType='ITMF';bol='B1';ivd_description='DIESEL';cmd_code='DSL';ivd_quantity=2;ivd_wgt=3;ivd_unit='GA';ivd_rate=1;ivd_charge=2},@{RecordType='OTHF';ivd_rate=1;ivd_charge=1})}
     @{ivh_invoicenumber='B';Detail=@(@{RecordType='ITMF';ivd_rate=1.23456;ivd_charge=2.345})}
@@ -106,6 +133,11 @@ try {
     Check ((Get-Content "$job/out.txt")[0] -ceq 'synthetic-user,synthetic-password') 'whole runner resolves nested env values into the DTN file'
     $log = Get-Content (Join-Path $job ('{0:yyyyMMdd}.log' -f (Get-Date))) -Raw
     Check ($log -match 'End' -and $log -notmatch 'synthetic-user|synthetic-password') 'whole runner completes without logging the DTN credentials'
+    $clash | ConvertTo-Json | Set-Content "$job/rows.json"
+    'param($Data,$Options); Set-Content delivered.txt $Data' | Set-Content "$job/deliver.ps1"
+    $config = @{directory=$job.FullName;src=@{adapter='./source.ps1';args=@{InputFile='rows.json'}};fmt=@{adapter='pdi';args=(@{Path='clash.txt'} + $layout)};dst=@{adapter='./deliver.ps1';args=@{}}}
+    $message = try { $null = Invoke-DataAgent $config; '' } catch { "$_" }
+    Check ($message -like "*key 'A'*" -and !(Test-Path "$job/clash.txt") -and !(Test-Path "$job/delivered.txt")) 'whole runner stops on a key with two headers: no file and no destination call'
 } finally {
     Remove-Item Env:DATAAGENT_INVOICE_TEST_USER -ErrorAction SilentlyContinue
     Set-Location $before

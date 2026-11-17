@@ -13,6 +13,18 @@ function Get-InvoiceRows($Rows) {
     else { $Rows }
 }
 
+# The flat layouts take one header per distinct header row and pull details by key alone, so two
+# headers under one key would each be written with every line of that invoice. Call this before
+# the output file is opened: a failed run then leaves no partial file and nothing to send.
+function Assert-InvoiceHeads($Heads, [string] $Key) {
+    foreach ($group in ($Heads | Group-Object -Property $Key)) {
+        if ($group.Count -lt 2) { continue }
+        $a, $b = $group.Group[0, 1]
+        $fields = @($a.PSObject.Properties.Name | Where-Object { "$($a.$_)" -cne "$($b.$_)" })
+        throw "invoice key '$($group.Name)' has $($group.Count) different headers, differing in: $($fields -join ', '). Rows under one key must agree on every header field."
+    }
+}
+
 function Expand-InvoiceLine([string] $Template, $Row, [hashtable] $Scope = @{}) {
     $out = [Text.StringBuilder]::new()
     $at = 0
