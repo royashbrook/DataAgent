@@ -2,8 +2,10 @@ param($Data, [hashtable] $Options)
 . "$PSScriptRoot/invoice/template.ps1"
 $Options = Get-InvoiceOptions $Options pdi
 $rows = @(Get-InvoiceRows $Data)
+$heads = @($rows | Select-Object -Property $Options.Head -Unique)
+Assert-InvoiceHeads $heads $Options.Key
 & {
-    foreach ($head in ($rows | Select-Object -Property $Options.Head -Unique)) {
+    foreach ($head in $heads) {
         if ($Options.H) { Expand-InvoiceLine $Options.H $head $Options.Values }
         foreach ($row in ($rows | Where-Object -Property $Options.Key -EQ -Value $head.($Options.Key))) {
             if (!$Options.Type -or $row.($Options.Type) -eq 'd') { Expand-InvoiceLine $Options.D $row $Options.Values }

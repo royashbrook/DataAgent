@@ -69,6 +69,8 @@ x12 Control is a template: omit it for the existing hour-of-year scheme, use `1{
 
 invoice groups keep their first-seen order, and each invoice's details keep their input order. the source owns any sorting. pdi no longer sorts invoices by key or moves D records before I records. grouping still puts an invoice's rows together if the source interleaves invoice keys.
 
+pdi and x12-210 allow one header per key. rows under one key must agree on every header field: pdi's `Head` fields, and for x12-210 every column not matched by `Detail`, used by a template or not. a key with two headers fails the run before the file is written, naming the key and the fields that differ, so nothing is sent. before 0.12.1 that input wrote the invoice once per header, each copy with every line. fix the query, or list a varying line-level column in `Detail`. keys match without regard to case.
+
 invoice substitutions without a format preserve PowerShell's string interpolation, including dates and numbers. alignment pads that string. an explicit `:format` instead formats the original typed value using .NET's current-culture formatting.
 
 set `adapter` to a `.ps1` path, relative to the job directory or absolute. no registration or core edit. each script receives `-Data` and `-Options`:

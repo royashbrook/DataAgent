@@ -30,10 +30,12 @@ function Expand-X12Segments($Templates, $Row) {
         }
     }
 }
+$invoices = @($rows | Select-Object -Property * -ExcludeProperty $Options.Detail -Unique)
+Assert-InvoiceHeads $invoices $Options.Key
 & {
     Expand-X12Segments $Options.Head $null
     $st = 0
-    foreach ($invoice in ($rows | Select-Object -Property * -ExcludeProperty $Options.Detail -Unique)) {
+    foreach ($invoice in $invoices) {
         $scope.st = ++$st
         $segments = [Collections.Generic.List[string]]::new()
         foreach ($segment in (Expand-X12Segments $Options.Invoice $invoice)) { $segments.Add($segment) }
